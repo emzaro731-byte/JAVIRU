@@ -14,6 +14,10 @@ const pool = process.env.DATABASE_URL ? new Pool({
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
+app.use((req,res,next)=>{
+  if(['/server.js','/package.json','/render.yaml','/README.md'].includes(req.path)) return res.sendStatus(404);
+  next();
+});
 app.use(express.static(__dirname, { index: false, dotfiles: 'deny' }));
 
 const seed = [

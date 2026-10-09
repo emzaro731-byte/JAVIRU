@@ -7,9 +7,11 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.SESSION_SECRET) console.warn('SESSION_SECRET is not set; sessions will reset when the server restarts.');
-const pool = process.env.DATABASE_URL ? new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ...(process.env.PGSSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {})
+const DB_URL = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
+const isSupabaseDb = Boolean(process.env.SUPABASE_DB_URL) || String(DB_URL || '').includes('supabase');
+const pool = DB_URL ? new Pool({
+  connectionString: DB_URL,
+  ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
 }) : null;
 
 app.disable('x-powered-by');

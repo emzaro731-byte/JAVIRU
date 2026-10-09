@@ -9,25 +9,26 @@ A mobile-responsive marketplace storefront inspired by common e-commerce pattern
 - Customer orders saved to PostgreSQL and visible only to the signed-in customer
 - Server-side price and stock validation when placing orders
 - Render health endpoint at `/health`
+- Automatic database table creation and starter product seeding on server startup
 
-## Deploy on Render
+## Use Supabase with Render
 
-The `render.yaml` Blueprint defines the Node web service, a PostgreSQL database, `DATABASE_URL`, and a generated `SESSION_SECRET`.
+The Render Blueprint configures the web service to expect `SUPABASE_DB_URL` and generates `SESSION_SECRET`. For security, the Supabase database connection string is entered in Render and is not stored in this repository.
 
-1. Open the Render Dashboard and choose **New + → Blueprint**.
-2. Connect GitHub and select `emzaro731-byte/JAVIRU`.
-3. Review the resources in `render.yaml`, then apply the Blueprint.
-4. Wait for the web service and database to finish provisioning.
-5. Open the JAVIRU web service URL and test account registration and checkout.
+1. Open the [Supabase project](https://supabase.com/dashboard/project/vihbsfrwnslnmheowkhy).
+2. Open **Project Settings → Database** and find the PostgreSQL connection string. Use the connection-pooler connection string if your hosting network requires it. Keep the database password private.
+3. Open the [Render Dashboard](https://dashboard.render.com/), select the JAVIRU web service, then open **Environment**.
+4. Add `SUPABASE_DB_URL` and paste the full PostgreSQL connection string from Supabase. Keep the generated `SESSION_SECRET` set.
+5. Save the changes and redeploy the service.
+6. Open `https://javiru-com.onrender.com/health`. A healthy connection should return JSON with `"database":"connected"`.
 
-If you already created a regular Render Web Service instead of a Blueprint, add a Render PostgreSQL database and set these environment variables on the web service:
-- `DATABASE_URL`: the database's internal connection string (use an external connection string only if required by your setup)
-- `SESSION_SECRET`: a long, random secret value
+When the server starts with `SUPABASE_DB_URL` configured, it automatically creates the `users`, `products`, `orders`, and `order_items` tables if they do not exist, and inserts starter products without overwriting existing products. You do not need to create these tables manually.
 
-After changing environment variables, redeploy the web service. The server creates its tables and initial catalogue on startup.
+If you deploy through **New + → Blueprint**, connect the `emzaro731-byte/JAVIRU` repository and apply the Blueprint. Render will ask you to provide the value for `SUPABASE_DB_URL`. If you already have a Render service, add the variable in its Environment settings instead.
 
 ## Important limitations
+- Do not use the Supabase project URL or public anon key as `SUPABASE_DB_URL`; this variable must contain a PostgreSQL connection string.
+- Never put the database password, service-role key, or session secret in frontend code or commit them to GitHub.
 - Checkout currently records an order using **Pay on delivery**; online payment is not integrated, so the site does not collect money.
 - Real delivery tracking, seller registration/approval, seller payouts, refunds, customer notifications, and a secure admin dashboard still need to be built.
 - The seeded products are illustrative; replace them with accurate product descriptions, images, prices, stock, warranty and delivery terms before selling.
-- Do not publish database credentials or the session secret in source control.

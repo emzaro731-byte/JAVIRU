@@ -229,5 +229,6 @@ app.get('*', (req,res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({error:'API route not found.'});
   res.sendFile(path.join(__dirname,'index.html'));
 });
-initDb().catch(err=>{console.error('Database initialization failed:',err.message);});
-app.listen(PORT,'0.0.0.0',()=>console.log('JAVIRU listening on port '+PORT));
+initDb().catch(err=>{console.error('Database initialization failed:',err.message);}).finally(()=>{
+  app.listen(PORT,'0.0.0.0',()=>console.log('JAVIRU listening on port '+PORT));
+});

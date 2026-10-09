@@ -112,4 +112,49 @@ function exportFile(name,data){let blob=new Blob([JSON.stringify(data,null,2)],{
 function exportOrders(){exportFile('javiru-demo-orders.json',orders)}function exportProducts(){exportFile('javiru-catalogue.json',products)}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300)}
 document.getElementById('year').textContent=new Date().getFullYear();renderCats();render();updateCart();updateAccount();(async()=>{await syncProducts();try{const me=await api('/api/auth/me');apiUser=me.user;user=apiUser;}catch{}renderCats();render();updateCart();updateAccount();})();
-</script></body></html>
+</script>
+<style>
+#signupGate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(circle at top right,#ffe1c2 0,transparent 38%),linear-gradient(145deg,#18212b,#263748);overflow:auto}
+#signupGate[hidden]{display:none!important}
+.gate-card{width:min(460px,100%);background:#fff;border-radius:20px;padding:clamp(22px,5vw,38px);box-shadow:0 24px 80px #0005}
+.gate-brand{font-size:30px;font-weight:950;letter-spacing:-1.8px}.gate-brand span{color:#f68b32}
+.gate-kicker{margin:24px 0 7px;color:#bd5d17;font-size:11px;font-weight:900;letter-spacing:.13em;text-transform:uppercase}
+.gate-card h1{font-size:30px;letter-spacing:-1px;line-height:1.1;margin:0 0 9px;color:#18212b}
+.gate-sub{font-size:13px;line-height:1.6;color:#6b7280;margin:0 0 20px}
+.gate-field{display:block;font-size:12px;font-weight:800;margin:13px 0;color:#26313d}
+.gate-field input{display:block;width:100%;padding:13px;border:1px solid #dfe3e8;border-radius:8px;margin-top:6px;outline-color:#f68b32;background:#fff}
+.gate-submit{width:100%;border:0;border-radius:8px;background:#f68b32;color:#18212b;padding:14px;font-weight:900;margin-top:8px}
+.gate-switch{text-align:center;font-size:12px;color:#68717b;margin:18px 0 0}.gate-switch button{border:0;background:none;color:#b9530d;font-weight:900}
+.gate-error{display:none;background:#fff0ed;color:#a52c1c;border-radius:7px;padding:10px;font-size:12px;line-height:1.5;margin:12px 0}.gate-error.show{display:block}
+.gate-terms{font-size:10px;color:#8a929b;line-height:1.5;margin:13px 0 0}
+</style>
+<div id="signupGate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+ <div class="gate-card">
+  <div class="gate-brand">JAVI<span>RU</span>.</div>
+  <div class="gate-kicker">Welcome to JAVIRU Marketplace</div>
+  <h1 id="gateTitle">Create your account</h1>
+  <p class="gate-sub" id="gateSubtitle">Sign up first to discover great finds, save your cart and track your orders.</p>
+  <div class="gate-error" id="gateError" role="alert"></div>
+  <form id="gateForm">
+   <label class="gate-field" id="gateNameWrap">Full name<input name="name" autocomplete="name" required minlength="2" placeholder="Enter your full name"></label>
+   <label class="gate-field" id="gatePhoneWrap">Phone number <span style="font-weight:400;color:#8a929b">(optional)</span><input name="phone" autocomplete="tel" type="tel" placeholder="e.g. 08012345678"></label>
+   <label class="gate-field">Email address<input name="email" autocomplete="email" type="email" required placeholder="you@example.com"></label>
+   <label class="gate-field">Password<input name="password" id="gatePassword" autocomplete="new-password" type="password" required minlength="8" placeholder="At least 8 characters"></label>
+   <button class="gate-submit" id="gateSubmit" type="submit">CREATE MY ACCOUNT →</button>
+  </form>
+  <p class="gate-switch" id="gateSwitch">Already have an account? <button type="button" id="gateToggle">Sign in</button></p>
+  <p class="gate-terms">By continuing, you agree to use JAVIRU responsibly. Your account is stored securely by the marketplace server.</p>
+ </div>
+</div>
+<script>
+(()=>{
+ const gate=document.getElementById('signupGate'),form=document.getElementById('gateForm'),title=document.getElementById('gateTitle'),subtitle=document.getElementById('gateSubtitle'),nameWrap=document.getElementById('gateNameWrap'),phoneWrap=document.getElementById('gatePhoneWrap'),password=document.getElementById('gatePassword'),submit=document.getElementById('gateSubmit'),toggle=document.getElementById('gateToggle'),switchText=document.getElementById('gateSwitch'),error=document.getElementById('gateError');
+ let mode='signup';
+ function message(text){error.textContent=text;error.classList.add('show')}
+ function setMode(next){mode=next;error.classList.remove('show');form.reset();const login=mode==='login';title.textContent=login?'Welcome back':'Create your account';subtitle.textContent=login?'Sign in to continue shopping on JAVIRU.':'Sign up first to discover great finds, save your cart and track your orders.';nameWrap.hidden=login;phoneWrap.hidden=login;nameWrap.querySelector('input').required=!login;password.autocomplete=login?'current-password':'new-password';submit.textContent=login?'SIGN IN →':'CREATE MY ACCOUNT →';switchText.firstChild.textContent=login?'New to JAVIRU? ':'Already have an account? ';toggle.textContent=login?'Create account':'Sign in'}
+ toggle.addEventListener('click',()=>setMode(mode==='signup'?'login':'signup'));
+ form.addEventListener('submit',async e=>{e.preventDefault();error.classList.remove('show');submit.disabled=true;submit.textContent=mode==='login'?'SIGNING IN…':'CREATING ACCOUNT…';const data=Object.fromEntries(new FormData(form).entries());try{const response=await fetch(mode==='login'?'/api/auth/login':'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Could not connect. Please try again.');gate.hidden=true;window.apiUser=result.user;window.user=result.user;if(typeof updateAccount==='function')updateAccount();if(typeof toast==='function')toast(mode==='login'?'Signed in successfully':'Welcome to JAVIRU! Your account is ready.');}catch(err){message(err.message||'Something went wrong. Please try again.')}finally{submit.disabled=false;submit.textContent=mode==='login'?'SIGN IN →':'CREATE MY ACCOUNT →'}});
+ fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(data=>{if(data&&data.user){gate.hidden=true;window.apiUser=data.user;window.user=data.user;if(typeof updateAccount==='function')updateAccount()}}).catch(()=>{});
+})();
+</script>
+</body></html>

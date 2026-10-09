@@ -2,25 +2,32 @@
 
 A mobile-responsive marketplace storefront inspired by common e-commerce patterns. This independent concept is not affiliated with Jumia.
 
-## Included in the front-end starter
-- Multi-department catalogue, product search, category filters, sorting, discount labels and stock display
-- Shopping cart with quantity controls and browser persistence
-- Wishlist
-- Customer profile saved locally in the browser
-- Demo checkout form, Nigerian state selector, order references and local order history
-- Seller Centre demo for creating product listings
-- Store Admin demo for managing the local catalogue and exporting JSON
-- Responsive mobile/desktop layout and naira formatting
+## Included
+- Responsive marketplace layout, search, departments, sorting, product cards, cart and wishlist
+- PostgreSQL-backed product catalogue and inventory
+- Customer registration and sign-in with password hashing and signed HttpOnly session cookies
+- Customer orders saved to PostgreSQL and visible only to the signed-in customer
+- Server-side price and stock validation when placing orders
+- Render health endpoint at `/health`
 
-## Publish with GitHub Pages
-1. Open **Settings → Pages** in this repository.
-2. Select **Deploy from a branch**.
-3. Choose the `main` branch and `/(root)`, then Save.
-4. Wait for the Pages deployment to finish.
+## Deploy on Render
 
-Expected URL: https://emzaro731-byte.github.io/JAVIRU/
+The `render.yaml` Blueprint defines the Node web service, a PostgreSQL database, `DATABASE_URL`, and a generated `SESSION_SECRET`.
 
-## Important: this is not yet a production marketplace
-The current site uses browser localStorage. Profiles, product changes, cart contents and demo orders only exist in the visitor's browser. There is no shared database, real authentication, actual payment processing, live delivery tracking, seller payouts, refunds or automated dropshipping. The demo checkout does not charge customers or notify the store. Product data is illustrative and should be verified/replaced.
+1. Open the Render Dashboard and choose **New + → Blueprint**.
+2. Connect GitHub and select `emzaro731-byte/JAVIRU`.
+3. Review the resources in `render.yaml`, then apply the Blueprint.
+4. Wait for the web service and database to finish provisioning.
+5. Open the JAVIRU web service URL and test account registration and checkout.
 
-Before accepting real orders, build and deploy a secure backend/database, implement verified user/seller accounts and role-based admin access, connect a Nigerian payment provider with server-side webhook verification, and add order fulfilment, delivery, return/refund and customer-support workflows. Never put secret API keys in `index.html`.
+If you already created a regular Render Web Service instead of a Blueprint, add a Render PostgreSQL database and set these environment variables on the web service:
+- `DATABASE_URL`: the database's internal connection string (use an external connection string only if required by your setup)
+- `SESSION_SECRET`: a long, random secret value
+
+After changing environment variables, redeploy the web service. The server creates its tables and initial catalogue on startup.
+
+## Important limitations
+- Checkout currently records an order using **Pay on delivery**; online payment is not integrated, so the site does not collect money.
+- Real delivery tracking, seller registration/approval, seller payouts, refunds, customer notifications, and a secure admin dashboard still need to be built.
+- The seeded products are illustrative; replace them with accurate product descriptions, images, prices, stock, warranty and delivery terms before selling.
+- Do not publish database credentials or the session secret in source control.

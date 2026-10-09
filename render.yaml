@@ -1,3 +1,9 @@
+databases:
+  - name: javiru-db
+    databaseName: javiru
+    user: javiru
+    plan: free
+
 services:
   - type: web
     name: javiru-marketplace
@@ -6,3 +12,10 @@ services:
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: javiru-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true

@@ -25,6 +25,17 @@ No `SUPABASE_DB_URL`, PostgreSQL password, `SESSION_SECRET`, or service-role key
 
 Health check: `https://javiru-com.onrender.com/health`.
 
+## Configure live Jumia product search
+
+The administrator-only importer can search your existing Jumia search API. In Render → JAVIRU service → Environment, add:
+
+- `JUMIA_SEARCH_API_URL`: the full endpoint URL for your existing Jumia search API.
+- `JUMIA_API_KEY`: optional; sent as a Bearer token if your API requires it. Leave blank if the endpoint does not require a key.
+
+The endpoint must accept a `q` search parameter and return JSON containing an array in `data.results`, `results`, `products`, or `items`. Product results should include a name, numeric `price`, image URL (`image_url`, `image`, or `thumbnail`) and preferably `product_id`, `product_url`, `price_before_discount`, `rating`, `category`, and `buyable`. Do not put a secret key in the browser or commit it to GitHub. After setting environment variables, redeploy the Render service.
+
+Before importing products, run `supabase/products.sql` again in the Supabase SQL Editor; it safely adds the image and supplier-ID columns to an existing catalogue. Supplier product IDs are used to update existing records instead of creating duplicates. Search and import are supported; automatic scheduled supplier refresh and automatic supplier fulfillment are not enabled by this change. Orders currently remain JAVIRU orders and do not automatically place orders with Jumia.
+
 ## Included
 - Responsive marketplace layout, search, departments, product cards, cart and wishlist
 - Supabase email/password authentication

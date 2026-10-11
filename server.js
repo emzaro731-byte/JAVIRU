@@ -8,6 +8,8 @@ const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_pub
 const JAVIRU_ADMIN_EMAIL = 'jamesbishopemmanuel@gmail.com';
 const JUMIA_SEARCH_API_URL = String(process.env.JUMIA_SEARCH_API_URL || '').trim();
 const JUMIA_API_KEY = String(process.env.JUMIA_API_KEY || '').trim();
+const FLW_SECRET_KEY = String(process.env.FLW_SECRET_KEY || '').trim();
+const PUBLIC_BASE_URL = String(process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://javiru-com.onrender.com').trim().replace(/\\/$/, '');
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
@@ -293,6 +295,9 @@ app.get('/api/orders', requireSupabaseUser, async (req, res) => {
     res.status(err.status === 401 ? 401 : 503).json({ error:'Could not load orders. Confirm the JAVIRU Supabase SQL setup has been run.' });
   }
 });
+app.get('/api/payments/flutterwave/status', (_req, res) => {
+  res.json({ configured:Boolean(FLW_SECRET_KEY), provider:'Flutterwave', message:FLW_SECRET_KEY ? 'Flutterwave online payment is configured.' : 'Online payment is not configured yet. Add FLW_SECRET_KEY in Render Environment.' });
+});
 app.post('/api/orders', requireSupabaseUser, async (req, res) => {
   const { items, fullName, phone, email, address, state, paymentMethod } = req.body || {};
   if (!Array.isArray(items) || !items.length || items.length > 50) return res.status(400).json({ error:'Your cart is empty or too large.' });
@@ -325,7 +330,7 @@ app.post('/api/orders', requireSupabaseUser, async (req, res) => {
   const row = {
     user_id:req.authUser.id, reference, full_name:fullName.trim(), phone:phone.trim(),
     email:email.trim(), address:address.trim(), state,
-    payment_method:paymentMethod === 'Online payment' ? 'Online payment (not enabled)' : 'Pay on delivery',
+    payment_method:paymentMethod === 'Flutterwave' ? 'Flutterwave (payment pending)' : 'Pay on delivery',
     status:'Pending', total, items:lines
   };
   try {
@@ -333,6 +338,32 @@ app.post('/api/orders', requireSupabaseUser, async (req, res) => {
       method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row)
     });
     const order = Array.isArray(created) ? created[0] : created;
+    if (paymentMethod === 'Flutterwave') {
+      if (!FLW_SECRET_KEY) return res.status(503).json({ error:'Flutterwave is not configured yet. Set FLW_SECRET_KEY in Render Environment, or choose Pay on delivery.' });
+      try {
+        const fw = await fetch('https://api.flutterwave.com/v3/payments', {
+          method:'POST',
+          headers:{ Authorization:'Bearer ' + FLW_SECRET_KEY, 'Content-Type':'application/json' },
+          body:JSON.stringify({
+            tx_ref:reference, amount:Number(total.toFixed(2)), currency:'NGN',
+            redirect_url:PUBLIC_BASE_URL + '/api/payments/flutterwave/callback',
+            customer:{ email:email.trim(), name:fullName.trim(), phonenumber:phone.trim() },
+            meta:{ order_reference:reference, user_id:req.authUser.id },
+            customizations:{ title:'JAVIRU Marketplace', description:'Order ' + reference, logo:PUBLIC_BASE_URL + '/favicon.ico' }
+          }),
+          signal:AbortSignal.timeout(20000)
+        });
+        const fwData = await fw.json().catch(()=>({}));
+        if (!fw.ok || fwData.status !== 'success' || !fwData.data?.link) {
+          console.error('Flutterwave initialization failed:', fwData.message || fw.status);
+          return res.status(502).json({ error:'Could not start Flutterwave checkout. Your order was saved as pending; choose Pay on delivery or try again later.' });
+        }
+        return res.status(201).json({ order:{ ...order, id:order.reference, date:new Date(order.created_at).toLocaleString('en-NG') }, checkout_url:fwData.data.link });
+      } catch (paymentErr) {
+        console.error('Flutterwave initialization error:', paymentErr.message);
+        return res.status(502).json({ error:'Could not reach Flutterwave. Your order was saved as pending; choose Pay on delivery or try again later.' });
+      }
+    }
     res.status(201).json({ order:{ ...order, id:order.reference, date:new Date(order.created_at).toLocaleString('en-NG') } });
   } catch (err) {
     console.error('Supabase order insert failed:', err.status || '', err.message);
@@ -493,5 +524,43 @@ app.get('/api/woocommerce/sync-status', requireProductAdmin, (_req, res) => {
 });
 setInterval(scheduledWooSync, WOO_SYNC_INTERVAL_HOURS * 60 * 60 * 1000).unref();
 setTimeout(scheduledWooSync, 15000).unref();
+
+
+app.get('/api/payments/flutterwave/callback', async (req, res) => {
+  const transactionId = String(req.query.transaction_id || '').trim();
+  const txRef = String(req.query.tx_ref || '').trim();
+  const resultStatus = String(req.query.status || '').trim().toLowerCase();
+  const fallback = PUBLIC_BASE_URL + '/';
+  if (!FLW_SECRET_KEY || !SUPABASE_SERVICE_ROLE_KEY || !transactionId || !txRef || resultStatus !== 'successful') {
+    return res.redirect(303, fallback + '?payment=not_verified');
+  }
+  try {
+    const verifyResponse = await fetch('https://api.flutterwave.com/v3/transactions/' + encodeURIComponent(transactionId) + '/verify', {
+      headers:{ Authorization:'Bearer ' + FLW_SECRET_KEY, Accept:'application/json' },
+      signal:AbortSignal.timeout(20000)
+    });
+    const verified = await verifyResponse.json().catch(()=>({}));
+    const tx = verified?.data;
+    if (!verifyResponse.ok || verified.status !== 'success' || tx?.status !== 'successful' ||
+        String(tx.tx_ref || '') !== txRef || String(tx.currency || '').toUpperCase() !== 'NGN' ||
+        !Number.isFinite(Number(tx.amount)) || !Number.isFinite(Number(tx.charged_amount)) || Number(tx.amount) <= 0) {
+      return res.redirect(303, fallback + '?payment=not_verified');
+    }
+    const found = await syncSupabaseAdmin('/rest/v1/javiru_orders?select=reference,total,payment_method&reference=eq.' + encodeURIComponent(txRef) + '&limit=1');
+    const order = Array.isArray(found) ? found[0] : null;
+    if (!order || Math.abs(Number(order.total) - Number(tx.amount)) > 0.01 || Number(tx.charged_amount) + 0.01 < Number(order.total)) {
+      return res.redirect(303, fallback + '?payment=not_verified');
+    }
+    await syncSupabaseAdmin('/rest/v1/javiru_orders?reference=eq.' + encodeURIComponent(txRef), {
+      method:'PATCH',
+      headers:{ Prefer:'return=minimal' },
+      body:JSON.stringify({ payment_method:'Flutterwave (verified paid)' })
+    });
+    return res.redirect(303, fallback + '?payment=success&reference=' + encodeURIComponent(txRef));
+  } catch (err) {
+    console.error('Flutterwave callback verification failed:', err.message);
+    return res.redirect(303, fallback + '?payment=not_verified');
+  }
+});
 
 app.listen(PORT, () => console.log('JAVIRU listening on port ' + PORT));

@@ -1567,6 +1567,6 @@ document.getElementById('year').textContent=new Date().getFullYear();renderCats(
   }
  }).catch(()=>{});
 })();
-</script>
 if(new URLSearchParams(location.search).get('payment')==='success'){const ref=new URLSearchParams(location.search).get('reference')||'';setTimeout(()=>openModal('<div class="drawhead"><h2>Payment verified ✓</h2><button class="close" onclick="closeModal()">×</button></div><div class="panel">Flutterwave confirmed your payment for order <b>'+safe(ref)+'</b>. Open My Orders to see your order details.</div><button class="btn dark" onclick="closeModal();openOrders()">VIEW MY ORDERS</button>'),700);history.replaceState({},'',location.pathname)}else if(new URLSearchParams(location.search).get('payment')==='not_verified'){setTimeout(()=>toast('Payment could not be verified. Check My Orders or contact support.'),700);history.replaceState({},'',location.pathname)}
+</script>
 </body></html>

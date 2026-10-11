@@ -47,6 +47,15 @@ revoke all on public.javiru_products from anon;
 grant select on public.javiru_products to anon, authenticated;
 grant insert on public.javiru_products to authenticated;
 
+drop policy if exists "JAVIRU product admins can update products" on public.javiru_products;
+create policy "JAVIRU product admins can update products"
+  on public.javiru_products for update
+  to authenticated
+  using (lower(coalesce(auth.jwt() ->> 'email', '')) = 'jamesbishopemmanuel@gmail.com')
+  with check (lower(coalesce(auth.jwt() ->> 'email', '')) = 'jamesbishopemmanuel@gmail.com');
+grant update on public.javiru_products to authenticated;
+
+
 
 -- JAVIRU customer orders
 CREATE TABLE IF NOT EXISTS public.javiru_orders (

@@ -17,6 +17,7 @@ app.get('/supabase-config.js', (_req, res) => {
     'window.JAVIRU_SUPABASE_CONFIG=' + JSON.stringify({ url: SUPABASE_URL, key: SUPABASE_PUBLISHABLE_KEY }) + ';'
   );
 });
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.use(express.static(__dirname, { index: false, dotfiles: 'deny' }));
 
 const seed = [

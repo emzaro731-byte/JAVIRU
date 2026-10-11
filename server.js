@@ -424,4 +424,74 @@ app.get('/api/woocommerce/orders', requireProductAdmin, async (req, res) => {
   }
 });
 
+
+async function syncWooCommerceCatalogue() {
+  const remote = await wooRequest('products?per_page=100&page=1&status=publish');
+  if (!Array.isArray(remote)) throw new Error('WooCommerce did not return a product list.');
+  const rows = remote.map(p => {
+    const price = Number(p.price || p.regular_price || 0);
+    const regular = Number(p.regular_price || p.price || 0);
+    const stock = p.stock_quantity == null ? (p.stock_status === 'instock' ? 1 : 0) : Math.max(0, Math.floor(Number(p.stock_quantity) || 0));
+    const category = (p.categories || []).find(c => c && c.name)?.name || 'WooCommerce';
+    const image = (p.images || []).find(i => i && i.src)?.src || '';
+    const productUrl = String(p.permalink || '');
+    if (!p.id || !String(p.name || '').trim() || !(price > 0)) return null;
+    return {
+      name:String(p.name).trim().slice(0,180),
+      category:String(category).trim().slice(0,80) || 'WooCommerce',
+      description:String(p.short_description || p.description || p.name || '').replace(/<[^>]*>/g,' ').replace(/\\s+/g,' ').trim().slice(0,3000),
+      price, old_price:Math.max(price, regular),
+      emoji:'📦', bg:'#f0f2ec', tag:'WOOCOMMERCE',
+      rating:0, stock, source_url:productUrl, image_url:image,
+      supplier_product_id:'woocommerce:' + String(p.id),
+      source_name:'WooCommerce', active:true
+    };
+  }).filter(Boolean);
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('Set SUPABASE_SERVICE_ROLE_KEY in Render to enable syncing WooCommerce products into JAVIRU.');
+  if (rows.length) {
+    await syncSupabaseAdmin('/rest/v1/javiru_products?on_conflict=supplier_product_id', {
+      method:'POST',
+      headers:{ Prefer:'resolution=merge-duplicates,return=minimal' },
+      body:JSON.stringify(rows)
+    });
+  }
+  return { fetched:remote.length, synced:rows.length, skipped:remote.length-rows.length };
+}
+app.post('/api/woocommerce/sync', requireProductAdmin, async (_req, res) => {
+  try {
+    const result = await syncWooCommerceCatalogue();
+    res.json({ ok:true, ...result, message:'WooCommerce sync finished: ' + result.synced + ' products updated or imported.' });
+  } catch (err) {
+    res.status(err.status || 502).json({ ok:false, error:err.message || 'WooCommerce sync failed.' });
+  }
+});
+const wooSyncHoursRaw = Number(process.env.WOOCOMMERCE_SYNC_INTERVAL_HOURS || 6);
+const WOO_SYNC_INTERVAL_HOURS = Number.isFinite(wooSyncHoursRaw) ? Math.min(24, Math.max(1, wooSyncHoursRaw)) : 6;
+let wooSyncInProgress = false;
+let wooLastSync = { status:'not-run', finished_at:null, synced:0, message:'Waiting for the scheduled WooCommerce refresh.' };
+async function scheduledWooSync() {
+  if (wooSyncInProgress || !wooConfig() || !SUPABASE_SERVICE_ROLE_KEY) return;
+  wooSyncInProgress = true;
+  try {
+    const result = await syncWooCommerceCatalogue();
+    wooLastSync = { status:'success', finished_at:new Date().toISOString(), synced:result.synced, message:result.message || ('Synced ' + result.synced + ' products.') };
+  } catch (err) {
+    wooLastSync = { status:'error', finished_at:new Date().toISOString(), synced:0, message:err.message || 'WooCommerce scheduled sync failed.' };
+    console.error('WooCommerce scheduled sync failed:', err.message);
+  } finally { wooSyncInProgress = false; }
+}
+app.get('/api/woocommerce/sync-status', requireProductAdmin, (_req, res) => {
+  res.json({
+    configured:Boolean(wooConfig()),
+    scheduler_enabled:Boolean(wooConfig() && SUPABASE_SERVICE_ROLE_KEY),
+    interval_hours:WOO_SYNC_INTERVAL_HOURS,
+    ...wooLastSync,
+    message:!wooConfig() ? 'Add WooCommerce URL and API keys in Render Environment.' :
+      !SUPABASE_SERVICE_ROLE_KEY ? 'WooCommerce is configured, but SUPABASE_SERVICE_ROLE_KEY is required to sync products into JAVIRU.' :
+      wooLastSync.message
+  });
+});
+setInterval(scheduledWooSync, WOO_SYNC_INTERVAL_HOURS * 60 * 60 * 1000).unref();
+setTimeout(scheduledWooSync, 15000).unref();
+
 app.listen(PORT, () => console.log('JAVIRU listening on port ' + PORT));

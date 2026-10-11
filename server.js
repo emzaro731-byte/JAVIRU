@@ -108,7 +108,7 @@ app.get('/api/products', async (_req, res) => {
   try {
     const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name&active=eq.true&order=created_at.desc', '');
     if (Array.isArray(rows) && rows.length) {
-      return res.json(rows.map(p => ({ id:Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
+      return res.json(rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
     }
   } catch (err) {
     console.warn('Imported product catalogue unavailable; using seed products:', err.status || '', err.message);
@@ -133,7 +133,7 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
   try {
     const created = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name', req.supabaseToken, { method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row) });
     const p = Array.isArray(created) ? created[0] : created;
-    res.status(201).json({ product:{ id:Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' } });
+    res.status(201).json({ product:{ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' } });
   } catch (err) {
     console.error('Product import failed:', err.status || '', err.message);
     res.status(err.status === 401 ? 401 : err.status === 403 ? 403 : 503).json({ error:'Could not save product. Apply supabase/products.sql and confirm your administrator role is enabled.' });
@@ -144,7 +144,7 @@ app.get('/api/auth/me', async (req, res) => {
   if (!token) return res.json({ user:null });
   try {
     const user = await supabaseFetch('/auth/v1/user', token);
-    res.json({ user: user ? { id:user.id, email:user.email, name:user.user_metadata?.full_name || user.user_metadata?.name || user.email, phone:user.phone || '' } : null });
+    res.json({ user: user ? { id:user.id, email:user.email, name:user.user_metadata?.full_name || user.user_metadata?.name || user.email, phone:user.phone || '', isProductAdmin:user.app_metadata?.javiru_product_admin === true } : null });
   } catch (_err) { res.json({ user:null }); }
 });
 app.get('/api/orders', requireSupabaseUser, async (req, res) => {
@@ -170,8 +170,17 @@ app.post('/api/orders', requireSupabaseUser, async (req, res) => {
   }
   const lines = [];
   for (const [id, qty] of quantities) {
-    const product = publicProducts.find(p => p.id === id);
-    if (!product || qty > 99) return res.status(400).json({ error:'One or more products are unavailable.' });
+    let product = publicProducts.find(p => p.id === id);
+    if (!product && id >= 1000000) {
+      try {
+        const imported = await supabaseFetch('/rest/v1/javiru_products?select=id,name,price,stock,active&id=eq.' + encodeURIComponent(id - 1000000) + '&active=eq.true&limit=1', req.supabaseToken);
+        if (Array.isArray(imported) && imported[0]) {
+          const p = imported[0];
+          product = { id:1000000 + Number(p.id), name:p.name, price:Number(p.price), stock:Number(p.stock || 0) };
+        }
+      } catch (_err) {}
+    }
+    if (!product || qty > 99 || Number(product.stock ?? 0) < qty) return res.status(400).json({ error:'One or more products are unavailable or out of stock.' });
     lines.push({ id:product.id, name:product.name, price:product.price, qty });
   }
   const total = lines.reduce((sum, item) => sum + item.price * item.qty, 0);

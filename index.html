@@ -1267,7 +1267,47 @@ async function openOrders(){
 }
 function openSeller(){if(apiUser?.isProductAdmin){openProductImporter();return}openModal('<div class="drawhead"><h2>🏪 Sell on JAVIRU</h2><button class="close" onclick="closeModal()">×</button></div><div class="panel">Seller listings are not enabled yet. JAVIRU currently imports products from its configured supplier integration.</div>')}
 function addProduct(e){e.preventDefault();let f=new FormData(e.target),id=Math.max(0,...products.map(p=>p.id))+1;products.unshift({id,name:f.get('name'),cat:f.get('cat'),price:Number(f.get('price')),old:Number(f.get('old')||f.get('price')),emoji:f.get('emoji')||'📦',bg:'#edf0e8',tag:'NEW LISTING',rating:0,stock:Number(f.get('stock')||0),description:f.get('description')||'',image:f.get('image')||''});persistProducts();renderCats();render();closeModal();toast('Demo listing published on this device')}
-function openAdmin(){if(!apiUser?.isProductAdmin){toast('Sign in with the store administrator account');return}openProductImporter()}
+
+async function openWooCommercePanel(){
+ if(!apiUser?.isProductAdmin){toast('WooCommerce settings are administrator-only');return}
+ openModal('<div class="drawhead"><h2>🔗 WooCommerce Connection</h2><button class="close" onclick="closeModal()">×</button></div><p class="muted">JAVIRU stays independent. To connect a separate WooCommerce site, set its URL and REST API keys in Render Environment. Credentials are never entered into this page.</p><div class="panel"><b id="wooStatusTitle">Checking connection…</b><p id="wooStatusText" class="muted" style="margin:8px 0">Loading settings and synchronization status…</p><div class="btnrow"><button class="btn dark" id="wooTestBtn" onclick="testWooConnection()">TEST CONNECTION</button><button class="btn" id="wooSyncBtn" onclick="runWooSync()">SYNC PRODUCTS NOW</button></div><small style="display:block;margin-top:8px">Background synchronization runs at the configured interval when WooCommerce and Supabase service-role settings are available.</small></div><div class="panel" style="margin-top:12px"><div class="drawhead"><h3>WooCommerce Products</h3><button class="btn" onclick="loadWooProducts()">REFRESH</button></div><div id="wooProducts" class="muted">Press Refresh to load products.</div></div><div class="panel" style="margin-top:12px"><div class="drawhead"><h3>Recent WooCommerce Orders</h3><button class="btn" onclick="loadWooOrders()">REFRESH</button></div><div id="wooOrders" class="muted">Press Refresh to load orders.</div></div>');
+ await loadWooStatus();
+}
+async function loadWooStatus(){
+ const title=document.getElementById('wooStatusTitle'),out=document.getElementById('wooStatusText');if(!out)return;
+ try{
+  const status=await api('/api/woocommerce/status');
+  const sync=await api('/api/woocommerce/sync-status');
+  if(!document.getElementById('wooStatusText'))return;
+  title.textContent=status.configured?'WooCommerce settings detected':'WooCommerce not connected';
+  out.textContent=status.message+' '+(sync.scheduler_enabled?'Automatic sync every '+sync.interval_hours+' hours. ':'Automatic sync is not active. ')+(sync.finished_at?'Last sync: '+new Date(sync.finished_at).toLocaleString()+'. ':'')+(sync.message||'');
+ }catch(err){title.textContent='Connection status unavailable';out.textContent=err.message||'Could not load connection status.'}
+}
+async function testWooConnection(){
+ const btn=document.getElementById('wooTestBtn'),out=document.getElementById('wooStatusText');if(!btn||!out)return;
+ btn.disabled=true;btn.textContent='TESTING…';out.textContent='Testing WooCommerce REST API…';
+ try{const result=await api('/api/woocommerce/test',{method:'POST',body:'{}'});out.textContent=result.message+(result.store_name?' Store: '+result.store_name:'');toast('WooCommerce connection successful');}
+ catch(err){out.textContent=err.message||'Connection test failed.'}
+ finally{btn.disabled=false;btn.textContent='TEST CONNECTION';}
+}
+async function runWooSync(){
+ const btn=document.getElementById('wooSyncBtn'),out=document.getElementById('wooStatusText');if(!btn||!out)return;
+ btn.disabled=true;btn.textContent='SYNCING…';out.textContent='Fetching WooCommerce products and updating JAVIRU catalogue…';
+ try{const result=await api('/api/woocommerce/sync',{method:'POST',body:'{}'});out.textContent=result.message+' Skipped: '+result.skipped+'.';await syncProducts();renderCats();render();updateCart();await loadWooStatus();toast('WooCommerce products synchronized');}
+ catch(err){out.textContent=err.message||'Synchronization failed.'}
+ finally{btn.disabled=false;btn.textContent='SYNC PRODUCTS NOW';}
+}
+async function loadWooProducts(){
+ const out=document.getElementById('wooProducts');if(!out)return;out.textContent='Loading products…';
+ try{const data=await api('/api/woocommerce/products');out.innerHTML=data.products?.length?data.products.map(p=>'<div class="order" style="display:flex;gap:10px;align-items:center"><img src="'+safe(p.image)+'" alt="" loading="lazy" style="width:54px;height:54px;object-fit:contain;background:#fff;border-radius:8px" onerror="this.style.visibility=\'hidden\'"><div style="flex:1;min-width:0"><b>'+safe(p.name)+'</b><br><small>SKU: '+safe(p.sku||'—')+' · Stock: '+safe(p.stock_status)+' · Qty: '+safe(p.stock_quantity==null?'—':p.stock_quantity)+'</small></div><strong>'+money(p.price)+'</strong></div>').join(''):'No published products returned.';}
+ catch(err){out.textContent=err.message||'Could not load WooCommerce products.'}
+}
+async function loadWooOrders(){
+ const out=document.getElementById('wooOrders');if(!out)return;out.textContent='Loading orders…';
+ try{const data=await api('/api/woocommerce/orders');out.innerHTML=data.orders?.length?data.orders.slice(0,20).map(o=>'<div class="order"><b>Order #'+safe(o.number)+'</b> · '+safe(o.status)+'<br><strong>'+safe(o.currency)+' '+safe(o.total)+'</strong><br><small>'+safe(o.billing?.first_name||'')+' '+safe(o.billing?.last_name||'')+' · '+safe(o.date_created||'')+'</small></div>').join(''):'No orders returned.';}
+ catch(err){out.textContent=err.message||'Could not load WooCommerce orders.'}
+}
+function openAdmin(){if(!apiUser?.isProductAdmin){toast('Sign in with the store administrator account');return}openModal('<div class="drawhead"><h2>⚙️ JAVIRU Store Admin</h2><button class="close" onclick="closeModal()">×</button></div><p class="muted">Manage supplier imports and external store connections.</p><div class="panel"><h3>🛍️ Jumia</h3><p class="muted">Search and import products from your configured Jumia API.</p><button class="btn dark" onclick="openProductImporter()">OPEN JUMIA IMPORTER</button></div><div class="panel" style="margin-top:12px"><h3>🔗 WooCommerce</h3><p class="muted">Connect a WooCommerce store, test the API, inspect products and orders, and synchronize product prices and stock into JAVIRU.</p><button class="btn dark" onclick="openWooCommercePanel()">MANAGE WOOCOMMERCE</button></div>')}
 function adminProducts(){openModal('<div class="drawhead"><h2>Manage demo products</h2><button class="close" onclick="closeModal()">×</button></div><div class="note">Delete products from this browser catalogue. This does not affect another device.</div>'+products.map(p=>'<div class="order"><b>'+safe(p.name)+'</b><br>'+money(p.price)+' · Stock '+p.stock+'<button class="btn" style="float:right" onclick="deleteProduct('+p.id+')">Delete</button></div>').join(''))}
 function deleteProduct(id){if(!confirm('Remove this product from this browser catalogue?'))return;products=products.filter(p=>p.id!==id);delete cart[id];wishlist=wishlist.filter(x=>x!==id);persistProducts();localStorage.setItem('javiru-wishlist',JSON.stringify(wishlist));saveCart();renderCats();render();adminProducts()}
 function exportFile(name,data){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}

@@ -5,6 +5,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://vihbsfrwnslnmheowkhy.supabase.co').replace(/\/$/, '');
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_HIMGxb-O6fj9O7OzT4ukuQ_jm5W8mWz';
+const JAVIRU_ADMIN_EMAIL = 'jamesbishopemmanuel@gmail.com';
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
@@ -96,7 +97,7 @@ async function requireProductAdmin(req, res, next) {
   try {
     const user = await supabaseFetch('/auth/v1/user', token);
     if (!user?.id) return res.status(401).json({ error:'Please sign in again.' });
-    if (user.app_metadata?.javiru_product_admin !== true) return res.status(403).json({ error:'Product importing is restricted to the JAVIRU administrator.' });
+    if (String(user.email || '').toLowerCase() !== JAVIRU_ADMIN_EMAIL) return res.status(403).json({ error:'Product importing is restricted to the JAVIRU administrator account.' });
     req.supabaseToken = token;
     req.authUser = user;
     next();
@@ -144,7 +145,7 @@ app.get('/api/auth/me', async (req, res) => {
   if (!token) return res.json({ user:null });
   try {
     const user = await supabaseFetch('/auth/v1/user', token);
-    res.json({ user: user ? { id:user.id, email:user.email, name:user.user_metadata?.full_name || user.user_metadata?.name || user.email, phone:user.phone || '', isProductAdmin:user.app_metadata?.javiru_product_admin === true } : null });
+    res.json({ user: user ? { id:user.id, email:user.email, name:user.user_metadata?.full_name || user.user_metadata?.name || user.email, phone:user.phone || '', isProductAdmin:String(user.email || '').toLowerCase() === JAVIRU_ADMIN_EMAIL } : null });
   } catch (_err) { res.json({ user:null }); }
 });
 app.get('/api/orders', requireSupabaseUser, async (req, res) => {

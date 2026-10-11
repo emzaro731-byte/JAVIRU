@@ -108,7 +108,7 @@ app.get('/api/products', async (_req, res) => {
   try {
     const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name&active=eq.true&order=created_at.desc', '');
     if (Array.isArray(rows) && rows.length) {
-      return res.json(rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
+      return res.json([...publicProducts, ...rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' }))]);
     }
   } catch (err) {
     console.warn('Imported product catalogue unavailable; using seed products:', err.status || '', err.message);

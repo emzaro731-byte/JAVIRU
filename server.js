@@ -1,44 +1,21 @@
 const express = require('express');
 const path = require('path');
-const crypto = require('crypto');
-const { Pool } = require('pg');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-if (!process.env.SESSION_SECRET) console.warn('SESSION_SECRET is not set; sessions will reset when the server restarts.');
-// Supports either a PostgreSQL URI or separate Render environment variables.
-// Separate variables avoid URI parsing failures when the database password contains
-// reserved characters such as @, #, /, or :.
-const DB_URL = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
-const DB_HOST = process.env.SUPABASE_DB_HOST || process.env.PGHOST;
-const DB_USER = process.env.SUPABASE_DB_USER || process.env.PGUSER;
-const DB_PASSWORD = process.env.SUPABASE_DB_PASSWORD || process.env.PGPASSWORD;
-const DB_NAME = process.env.SUPABASE_DB_NAME || process.env.PGDATABASE || 'postgres';
-const DB_PORT = Number(process.env.SUPABASE_DB_PORT || process.env.PGPORT || 5432);
-const hasSeparateDbConfig = Boolean(DB_HOST && DB_USER && DB_PASSWORD);
-const isSupabaseDb = Boolean(process.env.SUPABASE_DB_URL || DB_HOST) || String(DB_URL || '').includes('supabase');
-const pool = hasSeparateDbConfig
-  ? new Pool({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      database: DB_NAME,
-      ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
-    })
-  : DB_URL
-    ? new Pool({
-        connectionString: DB_URL,
-        ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
-      })
-    : null;
+const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://vihbsfrwnslnmheowkhy.supabase.co').replace(/\/$/, '');
+const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_HIMGxb-O6fj9O7OzT4ukuQ_jm5W8mWz';
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
-app.use((req,res,next)=>{
-  if(['/server.js','/package.json','/render.yaml','/README.md'].includes(req.path)) return res.sendStatus(404);
+app.use((req, res, next) => {
+  if (['/server.js', '/package.json', '/render.yaml', '/README.md'].includes(req.path)) return res.sendStatus(404);
   next();
+});
+app.get('/supabase-config.js', (_req, res) => {
+  res.type('application/javascript').set('Cache-Control', 'no-store').send(
+    'window.JAVIRU_SUPABASE_CONFIG=' + JSON.stringify({ url: SUPABASE_URL, key: SUPABASE_PUBLISHABLE_KEY }) + ';'
+  );
 });
 app.use(express.static(__dirname, { index: false, dotfiles: 'deny' }));
 
@@ -64,203 +41,107 @@ const seed = [
   [19,'Men’s Everyday Polo Shirt','Fashion',9500,12500,'👕','#e8e6df','EVERYDAY'],
   [20,'Home Security Camera','Electronics',27500,34000,'📹','#e2e8e8','SMART HOME']
 ];
+const publicProducts = seed.map(p => ({ id:p[0], name:p[1], cat:p[2], price:p[3], old:p[4], emoji:p[5], bg:p[6], tag:p[7], rating:4.5, stock:25, description:'A useful everyday pick from JAVIRU. Confirm specifications and availability before purchase.' }));
 
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
-  return salt + ':' + hash;
+function bearer(req) {
+  const value = String(req.headers.authorization || '');
+  return value.startsWith('Bearer ') ? value.slice(7) : '';
 }
-function verifyPassword(password, stored) {
-  const [salt, hash] = String(stored || '').split(':');
-  if (!salt || !hash) return false;
-  const actual = crypto.scryptSync(password, salt, 64);
-  const expected = Buffer.from(hash, 'hex');
-  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
-}
-function sign(payload) {
-  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
-  return body + '.' + sig;
-}
-function readSession(req) {
-  const raw = String(req.headers.cookie || '').split(';').map(x => x.trim()).find(x => x.startsWith('javiru_session='));
-  if (!raw) return null;
-  const token = decodeURIComponent(raw.slice('javiru_session='.length));
-  const [body, signature] = token.split('.');
-  if (!body || !signature) return null;
-  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest();
-  let supplied;
-  try { supplied = Buffer.from(signature, 'base64url'); } catch { return null; }
-  if (expected.length !== supplied.length || !crypto.timingSafeEqual(expected, supplied)) return null;
-  try {
-    const data = JSON.parse(Buffer.from(body, 'base64url').toString());
-    if (!data.uid || data.exp < Date.now()) return null;
-    return data;
-  } catch { return null; }
-}
-async function requireUser(req, res, next) {
-  if (!pool) return res.status(503).json({ error: 'Database is not configured. Add SUPABASE_DB_URL in Render.' });
-  const session = readSession(req);
-  if (!session) return res.status(401).json({ error: 'Please sign in to continue.' });
-  try {
-    const { rows } = await pool.query('SELECT id,name,email,phone,created_at FROM users WHERE id=$1', [session.uid]);
-    if (!rows[0]) return res.status(401).json({ error: 'Please sign in again.' });
-    req.user = rows[0];
-    next();
-  } catch (err) { console.error(err); res.status(500).json({ error: 'Could not verify your account.' }); }
-}
-function setSession(res, userId) {
-  const token = sign({ uid: userId, exp: Date.now() + 1000 * 60 * 60 * 24 * 7 });
-  res.setHeader('Set-Cookie', 'javiru_session=' + encodeURIComponent(token) + '; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=604800');
-}
-function clearSession(res) {
-  res.setHeader('Set-Cookie', 'javiru_session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0');
-}
-function publicProduct(row) {
-  return { id:Number(row.id), name:row.name, cat:row.category, price:Number(row.price), old:Number(row.old_price), emoji:row.emoji, bg:row.bg, tag:row.tag, rating:Number(row.rating), stock:Number(row.stock), description:row.description || '' };
-}
-async function initDb() {
-  if (!pool) return;
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
-      phone TEXT NOT NULL DEFAULT '', password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS products (
-      id BIGINT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL, price NUMERIC(12,2) NOT NULL CHECK(price >= 0),
-      old_price NUMERIC(12,2) NOT NULL DEFAULT 0, emoji TEXT NOT NULL DEFAULT '📦', bg TEXT NOT NULL DEFAULT '#f0f2ec',
-      tag TEXT NOT NULL DEFAULT 'JAVIRU PICK', rating NUMERIC(2,1) NOT NULL DEFAULT 4.5,
-      stock INTEGER NOT NULL DEFAULT 0 CHECK(stock >= 0), description TEXT NOT NULL DEFAULT '', active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS orders (
-      id BIGSERIAL PRIMARY KEY, reference TEXT NOT NULL UNIQUE, user_id BIGINT NOT NULL REFERENCES users(id),
-      full_name TEXT NOT NULL, phone TEXT NOT NULL, email TEXT NOT NULL, address TEXT NOT NULL, state TEXT NOT NULL,
-      payment_method TEXT NOT NULL DEFAULT 'Pay on delivery', status TEXT NOT NULL DEFAULT 'Pending',
-      total NUMERIC(12,2) NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE TABLE IF NOT EXISTS order_items (
-      id BIGSERIAL PRIMARY KEY, order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-      product_id BIGINT NOT NULL REFERENCES products(id), product_name TEXT NOT NULL, unit_price NUMERIC(12,2) NOT NULL,
-      quantity INTEGER NOT NULL CHECK(quantity > 0)
-    );
-  `);
-  // Keep existing databases compatible with accounts created before schema updates.
-  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''");
-  for (const p of seed) {
-    await pool.query(`INSERT INTO products(id,name,category,price,old_price,emoji,bg,tag,rating,stock,description)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,4.5,25,$9) ON CONFLICT(id) DO NOTHING`,
-      [...p.slice(0,8), 'A useful everyday pick from JAVIRU. Please confirm specifications, availability and warranty before purchase.']);
+async function supabaseFetch(resource, token, options = {}) {
+  const response = await fetch(SUPABASE_URL + resource, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: 'Bearer ' + (token || SUPABASE_PUBLISHABLE_KEY),
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    }
+  });
+  const raw = await response.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = { message: raw }; }
+  if (!response.ok) {
+    const err = new Error(data?.message || data?.msg || data?.error_description || data?.hint || 'Supabase request failed.');
+    err.status = response.status;
+    throw err;
   }
-  console.log('JAVIRU database ready');
+  return data;
+}
+async function requireSupabaseUser(req, res, next) {
+  const token = bearer(req);
+  if (!token) return res.status(401).json({ error:'Please sign in to continue.' });
+  try {
+    const user = await supabaseFetch('/auth/v1/user', token);
+    if (!user?.id) return res.status(401).json({ error:'Please sign in again.' });
+    req.supabaseToken = token;
+    req.authUser = user;
+    next();
+  } catch (err) {
+    return res.status(err.status === 401 ? 401 : 503).json({ error: err.status === 401 ? 'Your session expired. Please sign in again.' : 'Could not verify your Supabase session. Check the Supabase configuration.' });
+  }
 }
 app.get('/health', async (_req, res) => {
-  if (!pool) return res.status(503).json({ ok:false, service:'javiru-marketplace', database:'not_configured', hint:'Add SUPABASE_DB_URL in Render Environment using the Supabase PostgreSQL connection URI.' });
   try {
-    await pool.query('SELECT 1');
-    res.json({ ok:true, service:'javiru-marketplace', database:'connected' });
-  } catch (err) {
-    console.error('Database health check failed:', err.code || err.message);
-    res.status(503).json({ ok:false, service:'javiru-marketplace', database:'error', code:err.code || 'DB_ERROR' });
+    const response = await fetch(SUPABASE_URL + '/auth/v1/health', { headers: { apikey: SUPABASE_PUBLISHABLE_KEY } });
+    if (!response.ok) throw new Error('Supabase health check failed');
+    res.json({ ok:true, service:'javiru-marketplace', database:'supabase-configured', auth:'reachable' });
+  } catch (_err) {
+    res.status(503).json({ ok:false, service:'javiru-marketplace', database:'unreachable', hint:'Check SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Render.' });
   }
 });
-app.get('/api/products', async (_req, res) => {
-  if (!pool) return res.json(seed.map(p=>({id:p[0],name:p[1],cat:p[2],price:p[3],old:p[4],emoji:p[5],bg:p[6],tag:p[7],rating:4.5,stock:25,description:''})));
-  try {
-    const { rows } = await pool.query('SELECT * FROM products WHERE active=TRUE ORDER BY id');
-    res.json(rows.map(publicProduct));
-  } catch (err) { console.error(err); res.status(500).json({error:'Could not load products.'}); }
-});
+app.get('/api/products', (_req, res) => res.json(publicProducts));
 app.get('/api/auth/me', async (req, res) => {
-  if (!pool) return res.status(503).json({error:'Database is not configured.'});
-  const session = readSession(req);
-  if (!session) return res.json({user:null});
+  const token = bearer(req);
+  if (!token) return res.json({ user:null });
   try {
-    const { rows } = await pool.query('SELECT id,name,email,phone FROM users WHERE id=$1', [session.uid]);
-    res.json({user:rows[0] || null});
-  } catch (err) { console.error(err); res.status(500).json({error:'Could not load account.'}); }
+    const user = await supabaseFetch('/auth/v1/user', token);
+    res.json({ user: user ? { id:user.id, email:user.email, name:user.user_metadata?.full_name || user.user_metadata?.name || user.email, phone:user.phone || '' } : null });
+  } catch (_err) { res.json({ user:null }); }
 });
-app.post('/api/auth/register', async (req, res) => {
-  if (!pool) return res.status(503).json({error:'Database is not configured. Add SUPABASE_DB_URL in Render.'});
-  const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim().toLowerCase(), phone=String(req.body.phone||'').trim(), password=String(req.body.password||'');
-  if (name.length<2 || name.length>100) return res.status(400).json({error:'Enter your full name.'});
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length>254) return res.status(400).json({error:'Enter a valid email address.'});
-  if (password.length<8 || password.length>200) return res.status(400).json({error:'Password must be at least 8 characters.'});
-  if (phone.length>40) return res.status(400).json({error:'Phone number is too long.'});
+app.get('/api/orders', requireSupabaseUser, async (req, res) => {
   try {
-    const { rows } = await pool.query('INSERT INTO users(name,email,phone,password_hash) VALUES($1,$2,$3,$4) RETURNING id,name,email,phone', [name,email,phone,hashPassword(password)]);
-    setSession(res, rows[0].id);
-    res.status(201).json({user:rows[0]});
+    const rows = await supabaseFetch('/rest/v1/javiru_orders?select=id,reference,full_name,phone,email,address,state,payment_method,status,total,items,created_at&order=created_at.desc&limit=100', req.supabaseToken);
+    res.json((rows || []).map(o => ({ ...o, date:new Date(o.created_at).toLocaleString('en-NG') })));
   } catch (err) {
-    if (err.code==='23505') return res.status(409).json({error:'An account with this email already exists. Sign in instead.'});
-    console.error(err); res.status(500).json({error:'Could not create account.'});
+    console.error('Supabase orders read failed:', err.status || '', err.message);
+    res.status(err.status === 401 ? 401 : 503).json({ error:'Could not load orders. Confirm the JAVIRU Supabase SQL setup has been run.' });
   }
 });
-app.post('/api/auth/login', async (req, res) => {
-  if (!pool) return res.status(503).json({error:'Database is not configured. Add SUPABASE_DB_URL in Render.'});
-  const email=String(req.body.email||'').trim().toLowerCase(), password=String(req.body.password||'');
-  try {
-    const { rows } = await pool.query('SELECT id,name,email,phone,password_hash FROM users WHERE email=$1', [email]);
-    const row=rows[0];
-    if (!row || !verifyPassword(password,row.password_hash)) return res.status(401).json({error:'Email or password is incorrect.'});
-    setSession(res,row.id);
-    delete row.password_hash;
-    res.json({user:row});
-  } catch (err) { console.error(err); res.status(500).json({error:'Could not sign in.'}); }
-});
-app.post('/api/auth/logout', (_req,res) => { clearSession(res); res.json({ok:true}); });
-app.get('/api/orders', requireUser, async (req,res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT o.id,o.reference,o.full_name,o.phone,o.email,o.address,o.state,o.payment_method,o.status,o.total,o.created_at,
-        COALESCE(json_agg(json_build_object('name',i.product_name,'price',i.unit_price,'qty',i.quantity)) FILTER (WHERE i.id IS NOT NULL),'[]') AS items
-      FROM orders o LEFT JOIN order_items i ON i.order_id=o.id WHERE o.user_id=$1
-      GROUP BY o.id ORDER BY o.created_at DESC LIMIT 100
-    `, [req.user.id]);
-    res.json(rows.map(o=>({...o,total:Number(o.total),date:new Date(o.created_at).toLocaleString('en-NG'),id:o.reference,items:o.items})));
-  } catch(err) { console.error(err); res.status(500).json({error:'Could not load orders.'}); }
-});
-app.post('/api/orders', requireUser, async (req,res) => {
-  const {items,fullName,phone,email,address,state,paymentMethod}=req.body||{};
-  if (!Array.isArray(items)||!items.length||items.length>50) return res.status(400).json({error:'Your cart is empty or too large.'});
-  if (![fullName,phone,email,address,state].every(v=>typeof v==='string'&&v.trim()) || address.length>1000) return res.status(400).json({error:'Complete all delivery details.'});
-  const allowedStates=['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT Abuja','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara'];
-  if (!allowedStates.includes(state)) return res.status(400).json({error:'Choose a valid Nigerian state.'});
-  const cleanItems=[];
-  for (const it of items) {
-    const id=Number(it.id), qty=Number(it.qty);
-    if (!Number.isSafeInteger(id)||!Number.isInteger(qty)||qty<1||qty>99) return res.status(400).json({error:'Invalid item quantity.'});
-    const existing=cleanItems.find(x=>x.id===id); if(existing) existing.qty+=qty; else cleanItems.push({id,qty});
+app.post('/api/orders', requireSupabaseUser, async (req, res) => {
+  const { items, fullName, phone, email, address, state, paymentMethod } = req.body || {};
+  if (!Array.isArray(items) || !items.length || items.length > 50) return res.status(400).json({ error:'Your cart is empty or too large.' });
+  if (![fullName,phone,email,address,state].every(v => typeof v === 'string' && v.trim()) || address.length > 1000) return res.status(400).json({ error:'Complete all delivery details.' });
+  const allowedStates = ['Abia','Adamawa','Akwa Ibom','Anambra','Bauchi','Bayelsa','Benue','Borno','Cross River','Delta','Ebonyi','Edo','Ekiti','Enugu','FCT Abuja','Gombe','Imo','Jigawa','Kaduna','Kano','Katsina','Kebbi','Kogi','Kwara','Lagos','Nasarawa','Niger','Ogun','Ondo','Osun','Oyo','Plateau','Rivers','Sokoto','Taraba','Yobe','Zamfara'];
+  if (!allowedStates.includes(state)) return res.status(400).json({ error:'Choose a valid Nigerian state.' });
+  const quantities = new Map();
+  for (const item of items) {
+    const id = Number(item.id), qty = Number(item.qty);
+    if (!Number.isSafeInteger(id) || !Number.isInteger(qty) || qty < 1 || qty > 99) return res.status(400).json({ error:'Invalid item quantity.' });
+    quantities.set(id, (quantities.get(id) || 0) + qty);
   }
-  const client=await pool.connect();
+  const lines = [];
+  for (const [id, qty] of quantities) {
+    const product = publicProducts.find(p => p.id === id);
+    if (!product || qty > 99) return res.status(400).json({ error:'One or more products are unavailable.' });
+    lines.push({ id:product.id, name:product.name, price:product.price, qty });
+  }
+  const total = lines.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const reference = 'JVR-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
+  const row = {
+    user_id:req.authUser.id, reference, full_name:fullName.trim(), phone:phone.trim(),
+    email:email.trim(), address:address.trim(), state,
+    payment_method:paymentMethod === 'Online payment' ? 'Online payment (not enabled)' : 'Pay on delivery',
+    status:'Pending', total, items:lines
+  };
   try {
-    await client.query('BEGIN');
-    const ids=cleanItems.map(x=>x.id);
-    const {rows:products}=await client.query('SELECT * FROM products WHERE id=ANY($1::bigint[]) AND active=TRUE FOR UPDATE',[ids]);
-    if(products.length!==ids.length) throw Object.assign(new Error('One or more products are no longer available.'),{status:400});
-    let total=0;
-    for(const it of cleanItems){const p=products.find(x=>Number(x.id)===it.id);if(!p||Number(p.stock)<it.qty)throw Object.assign(new Error('Not enough stock for '+(p?.name||'an item')+'.'),{status:409});total+=Number(p.price)*it.qty;}
-    const reference='JVR-'+crypto.randomBytes(4).toString('hex').toUpperCase();
-    const {rows:orderRows}=await client.query(`INSERT INTO orders(reference,user_id,full_name,phone,email,address,state,payment_method,total)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id,reference,status,total,created_at`,
-      [reference,req.user.id,fullName.trim(),phone.trim(),email.trim().toLowerCase(),address.trim(),state,paymentMethod==='Online payment'?'Online payment (not enabled)':'Pay on delivery',total]);
-    const order=orderRows[0];
-    for(const it of cleanItems){
-      const p=products.find(x=>Number(x.id)===it.id);
-      await client.query('INSERT INTO order_items(order_id,product_id,product_name,unit_price,quantity) VALUES($1,$2,$3,$4,$5)',[order.id,p.id,p.name,p.price,it.qty]);
-      await client.query('UPDATE products SET stock=stock-$1 WHERE id=$2',[it.qty,p.id]);
-    }
-    await client.query('COMMIT');
-    res.status(201).json({order:{id:order.reference,reference:order.reference,status:order.status,total:Number(order.total),date:new Date(order.created_at).toLocaleString('en-NG')}});
-  } catch(err) {
-    await client.query('ROLLBACK').catch(()=>{});
-    if(err.status)return res.status(err.status).json({error:err.message});
-    console.error(err);res.status(500).json({error:'Could not save your order.'});
-  } finally {client.release();}
+    const created = await supabaseFetch('/rest/v1/javiru_orders?select=*', req.supabaseToken, {
+      method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row)
+    });
+    const order = Array.isArray(created) ? created[0] : created;
+    res.status(201).json({ order:{ ...order, id:order.reference, date:new Date(order.created_at).toLocaleString('en-NG') } });
+  } catch (err) {
+    console.error('Supabase order insert failed:', err.status || '', err.message);
+    res.status(err.status === 401 ? 401 : 503).json({ error:'Could not save your order. Check that the JAVIRU Supabase SQL setup has been run.' });
+  }
 });
-app.get('*', (req,res) => {
-  if (req.path.startsWith('/api/')) return res.status(404).json({error:'API route not found.'});
-  res.sendFile(path.join(__dirname,'index.html'));
-});
-initDb().catch(err=>{console.error('Database initialization failed:',err.message);}).finally(()=>{
-  app.listen(PORT,'0.0.0.0',()=>console.log('JAVIRU listening on port '+PORT));
-});
+app.listen(PORT, () => console.log('JAVIRU listening on port ' + PORT));

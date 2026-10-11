@@ -15,6 +15,8 @@ create table if not exists public.javiru_products (
   rating numeric(2,1) not null default 4.5 check (rating >= 0 and rating <= 5),
   stock integer not null default 0 check (stock >= 0),
   source_url text,
+  image_url text,
+  supplier_product_id text,
   source_name text not null default 'JAVIRU',
   active boolean not null default true,
   created_by uuid references auth.users(id) on delete set null,
@@ -108,3 +110,9 @@ CREATE POLICY "JAVIRU admin can update order status"
 REVOKE ALL ON public.javiru_orders FROM anon;
 GRANT SELECT, INSERT ON public.javiru_orders TO authenticated;
 GRANT UPDATE (status) ON public.javiru_orders TO authenticated;
+
+-- Safe upgrades for stores that created this table before image/supplier IDs were added.
+alter table public.javiru_products add column if not exists image_url text;
+alter table public.javiru_products add column if not exists supplier_product_id text;
+create unique index if not exists javiru_products_supplier_product_id_uidx
+  on public.javiru_products (supplier_product_id) where supplier_product_id is not null;

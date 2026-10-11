@@ -254,6 +254,74 @@ document.getElementById('year').textContent=new Date().getFullYear();renderCats(
 .gate-switch{text-align:center;font-size:12px;color:#68717b;margin:18px 0 0}.gate-switch button{border:0;background:none;color:#b9530d;font-weight:900}
 .gate-error{display:none;background:#fff0ed;color:#a52c1c;border-radius:7px;padding:10px;font-size:12px;line-height:1.5;margin:12px 0}.gate-error.show{display:block}
 .gate-terms{font-size:10px;color:#8a929b;line-height:1.5;margin:13px 0 0}
+
+/* CRYSTAL SIGN-UP GATE — match the JAVIRU Liquid Glass storefront */
+#signupGate{
+ background:
+  radial-gradient(ellipse at 12% 8%,rgba(131,231,255,.58),transparent 34%),
+  radial-gradient(ellipse at 90% 88%,rgba(202,183,255,.54),transparent 38%),
+  rgba(10,25,43,.58);
+ backdrop-filter:blur(26px) saturate(165%);
+ -webkit-backdrop-filter:blur(26px) saturate(165%);
+}
+#signupGate:before{
+ content:"";position:fixed;inset:0;pointer-events:none;
+ background:linear-gradient(125deg,transparent 20%,rgba(255,255,255,.12) 45%,transparent 67%);
+}
+#signupGate .gate-card{
+ position:relative;overflow:hidden;width:min(470px,100%);
+ padding:clamp(25px,6vw,42px);
+ color:#142b42;
+ background:linear-gradient(145deg,rgba(255,255,255,.84),rgba(231,246,255,.69) 55%,rgba(241,236,255,.76));
+ border:1px solid rgba(255,255,255,.94);border-radius:32px;
+ box-shadow:0 35px 110px rgba(4,20,38,.36),inset 0 1px 0 #fff,inset 0 -1px 0 rgba(255,255,255,.4);
+ backdrop-filter:blur(32px) saturate(180%);
+ -webkit-backdrop-filter:blur(32px) saturate(180%);
+}
+#signupGate .gate-card:before{
+ content:"";position:absolute;pointer-events:none;inset:0 0 auto;height:42%;
+ background:linear-gradient(145deg,rgba(255,255,255,.75),transparent 70%);
+ border-radius:inherit;
+}
+#signupGate .gate-brand{position:relative;font-size:34px;letter-spacing:-2.4px;color:#142d46;text-shadow:0 1px 0 #fff}
+#signupGate .gate-brand span{color:#4c9fce}
+#signupGate .gate-kicker{position:relative;margin-top:26px;color:#397da5;letter-spacing:.16em}
+#signupGate .gate-card h1{position:relative;color:#142b42;font-size:clamp(29px,7vw,35px);letter-spacing:-1.5px}
+#signupGate .gate-sub{position:relative;color:#586e82;font-size:13px;line-height:1.7}
+#signupGate .gate-field{position:relative;color:#28445d;font-size:12px}
+#signupGate .gate-field input{
+ color:#142b42;background:rgba(255,255,255,.65);
+ border:1px solid rgba(255,255,255,.98);border-radius:15px;
+ padding:14px 15px;margin-top:8px;outline:none;
+ box-shadow:inset 0 1px 3px rgba(33,70,101,.06),0 5px 15px rgba(53,100,139,.035);
+ transition:border-color .2s,box-shadow .2s,background .2s;
+}
+#signupGate .gate-field input::placeholder{color:#9aabba}
+#signupGate .gate-field input:focus{
+ background:rgba(255,255,255,.9);border-color:#9be5ff;
+ box-shadow:0 0 0 4px rgba(131,231,255,.22),inset 0 1px 3px rgba(33,70,101,.04);
+}
+#signupGate .gate-submit{
+ position:relative;background:linear-gradient(120deg,#d9f8ff,#b5e6ff 48%,#dcd2ff);
+ color:#17334d;border:1px solid rgba(255,255,255,.98);border-radius:16px;
+ padding:15px;font-size:12px;letter-spacing:.045em;
+ box-shadow:0 10px 24px rgba(64,128,174,.18),inset 0 1px 0 #fff;
+ transition:transform .2s,box-shadow .2s,filter .2s;
+}
+#signupGate .gate-submit:hover{transform:translateY(-2px);filter:brightness(1.02);box-shadow:0 14px 28px rgba(64,128,174,.24),inset 0 1px 0 #fff}
+#signupGate .gate-submit:disabled{opacity:.7;transform:none}
+#signupGate .gate-switch{position:relative;color:#61768a}
+#signupGate .gate-switch button{color:#2679a9;padding:4px 5px;border-radius:8px}
+#signupGate .gate-switch button:hover{background:rgba(255,255,255,.65)}
+#signupGate .gate-terms{position:relative;color:#8192a2;line-height:1.65}
+#signupGate .gate-error{position:relative;background:rgba(255,235,233,.88);border:1px solid rgba(255,255,255,.95);border-radius:13px;color:#9f3025}
+@media(max-width:480px){
+ #signupGate{padding:13px;align-items:center}
+ #signupGate .gate-card{border-radius:27px;padding:25px 21px}
+ #signupGate .gate-kicker{margin-top:20px}
+}
+@media(prefers-reduced-motion:reduce){#signupGate *,#signupGate *:before{transition:none!important;animation:none!important}}
+
 </style>
 <div id="signupGate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
  <div class="gate-card">

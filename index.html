@@ -360,13 +360,87 @@ document.getElementById('year').textContent=new Date().getFullYear();renderCats(
 </div>
 <script>
 (()=>{
- const gate=document.getElementById('signupGate'),form=document.getElementById('gateForm'),title=document.getElementById('gateTitle'),subtitle=document.getElementById('gateSubtitle'),nameWrap=document.getElementById('gateNameWrap'),password=document.getElementById('gatePassword'),submit=document.getElementById('gateSubmit'),toggle=document.getElementById('gateToggle'),switchText=document.getElementById('gateSwitch'),error=document.getElementById('gateError');
+ const gate=document.getElementById('signupGate');
+ const form=document.getElementById('gateForm');
+ const title=document.getElementById('gateTitle');
+ const subtitle=document.getElementById('gateSubtitle');
+ const nameWrap=document.getElementById('gateNameWrap');
+ const nameInput=nameWrap.querySelector('input');
+ const emailInput=form.querySelector('input[name="email"]');
+ const password=document.getElementById('gatePassword');
+ const submit=document.getElementById('gateSubmit');
+ const toggle=document.getElementById('gateToggle');
+ const switchText=document.getElementById('gateSwitch');
+ const error=document.getElementById('gateError');
  let mode='signup';
  function message(text){error.textContent=text;error.classList.add('show')}
- function setMode(next){mode=next;error.classList.remove('show');form.reset();const login=mode==='login';title.textContent=login?'Sign in':'Create your account';subtitle.textContent=login?'Enter your email address and password.':'Create your account using your email address and password.';nameWrap.hidden=login;nameWrap.querySelector('input').required=!login;nameWrap.querySelector('input').disabled=login;password.minLength=login?1:8;password.autocomplete=login?'current-password':'new-password';password.placeholder=login?'Password':'At least 8 characters';submit.textContent=login?'SIGN IN →':'CREATE ACCOUNT →';switchText.firstChild.textContent=login?'New to JAVIRU? ':'Already have an account? ';toggle.textContent=login?'Create account':'Sign in'}
+ function friendlyError(err){
+  const msg=String(err?.message||'');
+  const lower=msg.toLowerCase();
+  if(lower.includes('invalid login credentials')) return 'Email or password is incorrect. Check both and try again.';
+  if(lower.includes('email not confirmed')) return 'Please confirm your email using the link we sent you, then sign in.';
+  if(lower.includes('user already registered')) return 'An account with this email already exists. Choose Sign in instead.';
+  if(lower.includes('password should be at least')||lower.includes('password is too short')) return 'Use a password with at least 8 characters.';
+  if(lower.includes('rate limit')||lower.includes('too many requests')) return 'Too many attempts. Please wait a few minutes and try again.';
+  if(lower.includes('failed to fetch')||lower.includes('network')) return 'Could not connect to the sign-in service. Check your internet connection and try again.';
+  if(lower.includes('signup is disabled')) return 'New account registration is currently disabled. Please try again later.';
+  return msg||'Something went wrong. Please try again.';
+ }
+ function setMode(next){
+  mode=next;error.classList.remove('show');form.reset();
+  const login=mode==='login';
+  title.textContent=login?'Sign in':'Create your account';
+  subtitle.textContent=login?'Enter your email address and password.':'Create your JAVIRU account with your name, email and password.';
+  nameWrap.hidden=login;nameInput.required=!login;nameInput.disabled=login;
+  password.minLength=login?1:8;password.autocomplete=login?'current-password':'new-password';
+  password.placeholder=login?'Enter your password':'At least 8 characters';
+  submit.textContent=login?'SIGN IN →':'CREATE ACCOUNT →';
+  switchText.firstChild.textContent=login?'New to JAVIRU? ':'Already have an account? ';
+  toggle.textContent=login?'Create account':'Sign in';
+ }
  toggle.addEventListener('click',()=>setMode(mode==='signup'?'login':'signup'));
- form.addEventListener('submit',async e=>{e.preventDefault();error.classList.remove('show');submit.disabled=true;submit.textContent=mode==='login'?'SIGNING IN…':'CREATING ACCOUNT…';const formData=new FormData(form);const email=String(formData.get('email')||'').trim();const passwordValue=String(formData.get('password')||'');try{let result;if(mode==='login'){result=await supabaseClient.auth.signInWithPassword({email,password:passwordValue});}else{result=await supabaseClient.auth.signUp({email,password:passwordValue,options:{data:{full_name:String(formData.get('name')||'').trim()}}});}if(result.error)throw result.error;if(mode==='signup'&&!result.data.session){message('Account created. Check your email to confirm it, then return here to sign in.');return;}gate.hidden=true;window.apiUser=javiruUser(result.data.user);window.user=window.apiUser;if(typeof updateAccount==='function')updateAccount();if(typeof toast==='function')toast(mode==='login'?'Signed in successfully':'Welcome to JAVIRU! Your account is ready.');}catch(err){message(err.message||'Something went wrong. Please try again.')}finally{submit.disabled=false;submit.textContent=mode==='login'?'SIGN IN →':'CREATE MY ACCOUNT →'}});
- supabaseClient.auth.getUser().then(({data})=>{if(data?.user){gate.hidden=true;window.apiUser=javiruUser(data.user);window.user=window.apiUser;if(typeof updateAccount==='function')updateAccount();}}).catch(()=>{});
+ form.addEventListener('submit',async e=>{
+  e.preventDefault();
+  if(submit.disabled)return;
+  error.classList.remove('show');
+  const email=String(emailInput.value||'').trim().toLowerCase();
+  const passwordValue=String(password.value||'');
+  if(!email){message('Enter your email address.');emailInput.focus();return;}
+  if(!passwordValue){message('Enter your password.');password.focus();return;}
+  if(mode==='signup'&&passwordValue.length<8){message('Use a password with at least 8 characters.');password.focus();return;}
+  if(mode==='signup'&&String(nameInput.value||'').trim().length<2){message('Enter your full name.');nameInput.focus();return;}
+  submit.disabled=true;
+  submit.textContent=mode==='login'?'SIGNING IN…':'CREATING ACCOUNT…';
+  try{
+   if(!window.supabase||!window.JAVIRU_SUPABASE_CONFIG?.url||!window.JAVIRU_SUPABASE_CONFIG?.key||typeof supabaseClient==='undefined'){
+    throw new Error('The sign-in service is not configured. Please contact the store owner.');
+   }
+   let result;
+   if(mode==='login'){
+    result=await supabaseClient.auth.signInWithPassword({email,password:passwordValue});
+   }else{
+    result=await supabaseClient.auth.signUp({email,password:passwordValue,options:{data:{full_name:String(nameInput.value||'').trim()}}});
+   }
+   if(result.error)throw result.error;
+   if(mode==='signup'&&!result.data.session){
+    message('Your account was created. Check your inbox (and spam folder) for the confirmation email. After confirming, choose Sign in.');
+    return;
+   }
+   if(!result.data.user)throw new Error('The account could not be verified. Please try again.');
+   gate.hidden=true;
+   window.apiUser=javiruUser(result.data.user);
+   window.user=window.apiUser;
+   if(typeof updateAccount==='function')updateAccount();
+   if(typeof toast==='function')toast(mode==='login'?'Signed in successfully':'Welcome to JAVIRU! Your account is ready.');
+  }catch(err){message(friendlyError(err))}
+  finally{submit.disabled=false;submit.textContent=mode==='login'?'SIGN IN →':'CREATE ACCOUNT →'}
+ });
+ supabaseClient.auth.getUser().then(({data,error:authError})=>{
+  if(!authError&&data?.user){
+   gate.hidden=true;window.apiUser=javiruUser(data.user);window.user=window.apiUser;
+   if(typeof updateAccount==='function')updateAccount();
+  }
+ }).catch(()=>{});
 })();
 </script>
 </body></html>

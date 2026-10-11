@@ -21,29 +21,7 @@ app.get('/supabase-config.js', (_req, res) => {
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.use(express.static(__dirname, { index: false, dotfiles: 'deny' }));
 
-const seed = [
-  [1,'Infinix-Style Android Smartphone 128GB','Phones & Tablets',149900,179900,'📱','#e4eaf4','HOT DEAL'],
-  [2,'Wireless Noise-Cancelling Headphones','Electronics',28500,35000,'🎧','#e7eaf4','BESTSELLER'],
-  [3,'50000mAh Fast-Charge Power Bank','Phones & Tablets',32000,39000,'🔋','#ece8e2','POPULAR'],
-  [4,'Smart Watch with Fitness Tracker','Electronics',22000,28000,'⌚','#e8eee7','TRENDING'],
-  [5,'Everyday Sneakers','Fashion',27000,33000,'👟','#e8e8ed','NEW'],
-  [6,'Minimal Everyday Backpack','Fashion',18500,24000,'🎒','#eee5da','GOOD FIND'],
-  [7,'Portable Bluetooth Speaker','Electronics',16000,20000,'🔊','#e1ecec','TOP PICK'],
-  [8,'Insulated Travel Bottle','Home & Living',8500,11000,'🧴','#e9efdc','VALUE'],
-  [9,'Soft Glow Table Lamp','Home & Living',14500,18000,'💡','#f1e6d8','COZY PICK'],
-  [10,'Skincare Essentials Set','Beauty',12500,16000,'✨','#f2e3e8','SELF CARE'],
-  [11,'Compact Home Blender','Home & Living',24500,30000,'🥤','#e6ede6','KITCHEN'],
-  [12,'Phone Tripod & Creator Kit','Electronics',13500,17000,'📷','#e5e9f1','CREATOR FAV'],
-  [13,'Laptop for Work and Study','Computing',389000,429000,'💻','#e4eaf0','TOP PICK'],
-  [14,'Wireless Keyboard and Mouse','Computing',18500,23000,'⌨️','#e8e9ee','DEAL'],
-  [15,'Casual Crossbody Bag','Fashion',15500,19500,'👜','#eee5df','STYLE PICK'],
-  [16,'Kids Learning Toy Set','Baby & Kids',12000,15000,'🧸','#f2e5d9','FAMILY'],
-  [17,'Pantry Essentials Bundle','Groceries',9500,11500,'🛍️','#e5eddb','DAILY NEED'],
-  [18,'Rechargeable Standing Fan','Home & Living',58000,68000,'🌀','#e3ebef','POPULAR'],
-  [19,'Men’s Everyday Polo Shirt','Fashion',9500,12500,'👕','#e8e6df','EVERYDAY'],
-  [20,'Home Security Camera','Electronics',27500,34000,'📹','#e2e8e8','SMART HOME']
-];
-const publicProducts = seed.map(p => ({ id:p[0], name:p[1], cat:p[2], price:p[3], old:p[4], emoji:p[5], bg:p[6], tag:p[7], rating:4.5, stock:25, description:'A useful everyday pick from JAVIRU. Confirm specifications and availability before purchase.' }));
+const publicProducts = [];
 
 function bearer(req) {
   const value = String(req.headers.authorization || '');
@@ -109,12 +87,12 @@ app.get('/api/products', async (_req, res) => {
   try {
     const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name&active=eq.true&order=created_at.desc', '');
     if (Array.isArray(rows) && rows.length) {
-      return res.json([...publicProducts, ...rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' }))]);
+      return res.json(rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 0), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
     }
   } catch (err) {
-    console.warn('Imported product catalogue unavailable; using seed products:', err.status || '', err.message);
+    console.warn('Imported product catalogue unavailable:', err.status || '', err.message);
   }
-  res.json(publicProducts);
+  res.json([]);
 });
 app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
   const body = req.body || {};

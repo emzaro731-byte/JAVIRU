@@ -150,7 +150,16 @@ footer{background:rgba(13,29,47,.88);backdrop-filter:blur(24px);-webkit-backdrop
 <footer><div class="wrap foot"><div><a class="logo" href="#">JAVI<span>RU</span>.</a><p>More choice. Better finds.</p><small>Independent marketplace concept. Not affiliated with Jumia.</small></div><div><strong>Customer care</strong><p class="footlinks"><a href="#products">Shop</a><a href="#" onclick="openOrders();return false">Orders & returns</a><a href="#" onclick="openSeller();return false">Sell on JAVIRU</a><a href="#" onclick="openAdmin();return false">Store admin</a></p><small>© <span id="year"></span> JAVIRU Marketplace</small></div></div></footer>
 <div class="overlay" id="cartOverlay" onclick="if(event.target===this)toggleCart(false)"><aside class="drawer"><div class="drawhead"><h2>Your shopping cart <span id="bagCount"></span></h2><button class="close" onclick="toggleCart(false)">×</button></div><div class="cartitems" id="cartItems"></div><div class="cartfoot"><div class="total"><span>Subtotal</span><span id="subtotal">₦0</span></div><button class="checkout" onclick="openCheckout()">PROCEED TO CHECKOUT →</button><p class="note">Demo mode: no payment is processed. Connect a secure backend and payment provider before taking real orders.</p></div></aside></div>
 <div class="modal" id="modal" onclick="if(event.target===this)closeModal()"><div class="modalbox" id="modalbox"></div></div><div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/supabase-config.js"></script>
 <script>
+const supabaseClient = window.supabase.createClient(window.JAVIRU_SUPABASE_CONFIG.url, window.JAVIRU_SUPABASE_CONFIG.key, {
+  auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true }
+});
+function javiruUser(user){
+ if(!user) return null;
+ return {id:user.id,email:user.email||'',name:user.user_metadata?.full_name||user.user_metadata?.name||user.email||'JAVIRU customer',phone:user.phone||''};
+}
 const seed=[
 [1,'Infinix-Style Android Smartphone 128GB','Phones & Tablets',149900,179900,'📱','#e4eaf4','HOT DEAL'],[2,'Wireless Noise-Cancelling Headphones','Electronics',28500,35000,'🎧','#e7eaf4','BESTSELLER'],[3,'50000mAh Fast-Charge Power Bank','Phones & Tablets',32000,39000,'🔋','#ece8e2','POPULAR'],[4,'Smart Watch with Fitness Tracker','Electronics',22000,28000,'⌚','#e8eee7','TRENDING'],[5,'Everyday Sneakers','Fashion',27000,33000,'👟','#e8e8ed','NEW'],[6,'Minimal Everyday Backpack','Fashion',18500,24000,'🎒','#eee5da','GOOD FIND'],[7,'Portable Bluetooth Speaker','Electronics',16000,20000,'🔊','#e1ecec','TOP PICK'],[8,'Insulated Travel Bottle','Home & Living',8500,11000,'🧴','#e9efdc','VALUE'],[9,'Soft Glow Table Lamp','Home & Living',14500,18000,'💡','#f1e6d8','COZY PICK'],[10,'Skincare Essentials Set','Beauty',12500,16000,'🧴','#f2e3e8','SELF CARE'],[11,'Compact Home Blender','Home & Living',24500,30000,'🥤','#e6ede6','KITCHEN'],[12,'Phone Tripod & Creator Kit','Electronics',13500,17000,'📷','#e5e9f1','CREATOR FAV'],[13,'Laptop for Work and Study','Computing',389000,429000,'💻','#e4eaf0','TOP PICK'],[14,'Wireless Keyboard and Mouse','Computing',18500,23000,'⌨️','#e8e9ee','DEAL'],[15,'Casual Crossbody Bag','Fashion',15500,19500,'👜','#eee5df','STYLE PICK'],[16,'Kids Learning Toy Set','Baby & Kids',12000,15000,'🧸','#f2e5d9','FAMILY'],[17,'Pantry Essentials Bundle','Groceries',9500,11500,'🛍️','#e5eddb','DAILY NEED'],[18,'Rechargeable Standing Fan','Home & Living',58000,68000,'🌀','#e3ebef','POPULAR'],[19,'Men’s Everyday Polo Shirt','Fashion',9500,12500,'👕','#e8e6df','EVERYDAY'],[20,'Home Security Camera','Electronics',27500,34000,'📹','#e2e8e8','SMART HOME']];
 let products=JSON.parse(localStorage.getItem('javiru-products')||'null');if(!Array.isArray(products)||!products.length)products=seed.map(a=>({id:a[0],name:a[1],cat:a[2],price:a[3],old:a[4],emoji:a[5],bg:a[6],tag:a[7],rating:4.5,stock:25,description:'A useful everyday pick from the JAVIRU marketplace. Please confirm product specifications, availability and warranty with the seller before purchase.'}));
@@ -190,7 +199,9 @@ async function placeOrder(e){
 }
 function updateAccount(){document.getElementById('accountLabel').textContent=apiUser?.name||'Sign in / Register';}
 async function api(url,options={}){
- const response=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},...options});
+ const sessionResult=await supabaseClient.auth.getSession();
+ const accessToken=sessionResult.data?.session?.access_token;
+ const response=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json',...(accessToken?{Authorization:'Bearer '+accessToken}:{}),...(options.headers||{})},...options});
  let data={};try{data=await response.json()}catch{}
  if(!response.ok)throw new Error(data.error||'Something went wrong. Please try again.');
  return data;
@@ -211,15 +222,22 @@ function renderAuthForm(){
  openModal('<div class="drawhead"><h2>'+(register?'Create your account':'Welcome back')+'</h2><button class="close" onclick="closeModal()">×</button></div><p style="font-size:12px;color:#737b85">'+(register?'Register to save your orders and delivery details across devices.':'Sign in to view your orders and check out securely.')+'</p><form onsubmit="authenticate(event)">'+(register?'<label class="field">Full name<input name="name" required minlength="2" maxlength="100" autocomplete="name"></label>':'')+'<label class="field">Email address<input name="email" type="email" required autocomplete="email"></label>'+'<label class="field">Password<input name="password" type="password" required minlength="'+(register?'8':'1')+'" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"></label><button class="checkout">'+(register?'CREATE ACCOUNT':'SIGN IN')+'</button></form><p class="note">'+(register?'Use at least 8 characters for your password. Passwords are stored as password hashes.':'Your session is protected by an HttpOnly cookie.')+'</p><button class="btn" style="width:100%" onclick="authMode=\''+(register?'login':'register')+'\';renderAuthForm()">'+(register?'Already have an account? Sign in':'New to JAVIRU? Create an account')+'</button>');
 }
 async function authenticate(e){
- e.preventDefault();const f=new FormData(e.target);const body={email:f.get('email'),password:f.get('password')};
- if(authMode==='register'){body.name=f.get('name');}
+ e.preventDefault();const f=new FormData(e.target);const email=String(f.get('email')||'').trim();const password=String(f.get('password')||'');
  try{
-  const result=await api(authMode==='register'?'/api/auth/register':'/api/auth/login',{method:'POST',body:JSON.stringify(body)});
-  apiUser=result.user;user=apiUser;updateAccount();closeModal();toast(authMode==='register'?'Account created successfully':'Welcome back, '+apiUser.name+'!');
+  let result;
+  if(authMode==='register'){
+   result=await supabaseClient.auth.signUp({email,password,options:{data:{full_name:String(f.get('name')||'').trim()}}});
+   if(result.error)throw result.error;
+   if(!result.data.session){toast('Account created. Check your email to confirm, then sign in.');return;}
+  }else{
+   result=await supabaseClient.auth.signInWithPassword({email,password});
+   if(result.error)throw result.error;
+  }
+  apiUser=javiruUser(result.data.user);user=apiUser;updateAccount();closeModal();toast(authMode==='register'?'Account created successfully':'Welcome back, '+apiUser.name+'!');
  }catch(err){toast(err.message||'Could not sign in')}
 }
 async function logoutAccount(){
- try{await api('/api/auth/logout',{method:'POST',body:'{}'});}catch{}
+ await supabaseClient.auth.signOut();
  apiUser=null;user=null;updateAccount();closeModal();toast('You have signed out');
 }
 async function openOrders(){
@@ -238,7 +256,7 @@ function deleteProduct(id){if(!confirm('Remove this product from this browser ca
 function exportFile(name,data){let blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();URL.revokeObjectURL(url)}
 function exportOrders(){exportFile('javiru-demo-orders.json',orders)}function exportProducts(){exportFile('javiru-catalogue.json',products)}
 function toast(s){let t=document.getElementById('toast');t.textContent=s;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2300)}
-document.getElementById('year').textContent=new Date().getFullYear();renderCats();render();updateCart();updateAccount();(async()=>{await syncProducts();try{const me=await api('/api/auth/me');apiUser=me.user;user=apiUser;}catch{}renderCats();render();updateCart();updateAccount();})();
+document.getElementById('year').textContent=new Date().getFullYear();renderCats();render();updateCart();updateAccount();(async()=>{await syncProducts();const result=await supabaseClient.auth.getUser();apiUser=javiruUser(result.data?.user);user=apiUser;renderCats();render();updateCart();updateAccount();})();
 </script>
 <style>
 #signupGate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:22px;background:radial-gradient(circle at top right,#ffe1c2 0,transparent 38%),linear-gradient(145deg,#18212b,#263748);overflow:auto}
@@ -347,8 +365,8 @@ document.getElementById('year').textContent=new Date().getFullYear();renderCats(
  function message(text){error.textContent=text;error.classList.add('show')}
  function setMode(next){mode=next;error.classList.remove('show');form.reset();const login=mode==='login';title.textContent=login?'Welcome back':'Create your account';subtitle.textContent=login?'Sign in using only your email address and password.':'Sign up first to discover great finds, save your cart and track your orders.';nameWrap.hidden=login;nameWrap.querySelector('input').required=!login;nameWrap.querySelector('input').disabled=login;password.minLength=login?1:8;password.autocomplete=login?'current-password':'new-password';password.placeholder=login?'Enter your password':'At least 8 characters';submit.textContent=login?'SIGN IN →':'CREATE MY ACCOUNT →';switchText.firstChild.textContent=login?'New to JAVIRU? ':'Already have an account? ';toggle.textContent=login?'Create account':'Sign in'}
  toggle.addEventListener('click',()=>setMode(mode==='signup'?'login':'signup'));
- form.addEventListener('submit',async e=>{e.preventDefault();error.classList.remove('show');submit.disabled=true;submit.textContent=mode==='login'?'SIGNING IN…':'CREATING ACCOUNT…';const formData=new FormData(form);const data=mode==='login'?{email:formData.get('email'),password:formData.get('password')}:{name:formData.get('name'),email:formData.get('email'),password:formData.get('password')};try{const response=await fetch(mode==='login'?'/api/auth/login':'/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(data)});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Could not connect. Please try again.');gate.hidden=true;window.apiUser=result.user;window.user=result.user;if(typeof updateAccount==='function')updateAccount();if(typeof toast==='function')toast(mode==='login'?'Signed in successfully':'Welcome to JAVIRU! Your account is ready.');}catch(err){message(err.message||'Something went wrong. Please try again.')}finally{submit.disabled=false;submit.textContent=mode==='login'?'SIGN IN →':'CREATE MY ACCOUNT →'}});
- fetch('/api/auth/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(data=>{if(data&&data.user){gate.hidden=true;window.apiUser=data.user;window.user=data.user;if(typeof updateAccount==='function')updateAccount()}}).catch(()=>{});
+ form.addEventListener('submit',async e=>{e.preventDefault();error.classList.remove('show');submit.disabled=true;submit.textContent=mode==='login'?'SIGNING IN…':'CREATING ACCOUNT…';const formData=new FormData(form);const email=String(formData.get('email')||'').trim();const passwordValue=String(formData.get('password')||'');try{let result;if(mode==='login'){result=await supabaseClient.auth.signInWithPassword({email,password:passwordValue});}else{result=await supabaseClient.auth.signUp({email,password:passwordValue,options:{data:{full_name:String(formData.get('name')||'').trim()}}});}if(result.error)throw result.error;if(mode==='signup'&&!result.data.session){message('Account created. Check your email to confirm it, then return here to sign in.');return;}gate.hidden=true;window.apiUser=javiruUser(result.data.user);window.user=window.apiUser;if(typeof updateAccount==='function')updateAccount();if(typeof toast==='function')toast(mode==='login'?'Signed in successfully':'Welcome to JAVIRU! Your account is ready.');}catch(err){message(err.message||'Something went wrong. Please try again.')}finally{submit.disabled=false;submit.textContent=mode==='login'?'SIGN IN →':'CREATE MY ACCOUNT →'}});
+ supabaseClient.auth.getUser().then(({data})=>{if(data?.user){gate.hidden=true;window.apiUser=javiruUser(data.user);window.user=window.apiUser;if(typeof updateAccount==='function')updateAccount();}}).catch(()=>{});
 })();
 </script>
 </body></html>

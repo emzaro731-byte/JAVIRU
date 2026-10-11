@@ -155,9 +155,9 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
   }
   const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', image_url:imageUrl || null, supplier_product_id:supplierProductId || null, emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
   try {
-    const created = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name', req.supabaseToken, { method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row) });
+    const created = await supabaseFetch('/rest/v1/javiru_products?on_conflict=supplier_product_id&select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name,image_url', req.supabaseToken, { method:'POST', headers:{ Prefer:'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(row) });
     const p = Array.isArray(created) ? created[0] : created;
-    res.status(201).json({ product:{ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' } });
+    res.status(201).json({ product:{ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU', image:p.image_url || '' } });
   } catch (err) {
     console.error('Product import failed:', err.status || '', err.message);
     res.status(err.status === 401 ? 401 : err.status === 403 ? 403 : 503).json({ error:'Could not save product. Apply supabase/products.sql and confirm your administrator role is enabled.' });

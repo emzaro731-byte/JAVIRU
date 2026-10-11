@@ -166,7 +166,8 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
 
 // Automatic Jumia catalogue refresh. Keep the Supabase service-role key on the server only.
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-const SYNC_INTERVAL_HOURS = Math.min(24, Math.max(1, Number(process.env.JUMIA_SYNC_INTERVAL_HOURS || 6)));
+const configuredSyncHours = Number(process.env.JUMIA_SYNC_INTERVAL_HOURS || 6);
+const SYNC_INTERVAL_HOURS = Number.isFinite(configuredSyncHours) ? Math.min(24, Math.max(1, configuredSyncHours)) : 6;
 let syncInProgress = false;
 let lastSync = { status: 'not-run', finished_at: null, updated: 0, skipped: 0, errors: 0, message: 'Waiting for the first scheduled refresh.' };
 
@@ -225,7 +226,7 @@ async function refreshJumiaCatalogue(trigger = 'scheduled') {
         if (!Number.isFinite(price) || price <= 0) { result.skipped++; continue; }
         const candidateOld = Number(match.price_before_discount ?? match.original_price ?? match.old_price ?? price);
         const oldPrice = Number.isFinite(candidateOld) && candidateOld >= price ? candidateOld : price;
-        const buyable = match.buyable !== false && match.in_stock !== false && match.stock !== 0;
+        const buyable = match.buyable !== false && match.in_stock !== false && !(match.stock !== undefined && Number(match.stock) === 0);
         const patch = {
           price,
           old_price: oldPrice,

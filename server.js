@@ -7,12 +7,32 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.SESSION_SECRET) console.warn('SESSION_SECRET is not set; sessions will reset when the server restarts.');
+// Supports either a PostgreSQL URI or separate Render environment variables.
+// Separate variables avoid URI parsing failures when the database password contains
+// reserved characters such as @, #, /, or :.
 const DB_URL = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
-const isSupabaseDb = Boolean(process.env.SUPABASE_DB_URL) || String(DB_URL || '').includes('supabase');
-const pool = DB_URL ? new Pool({
-  connectionString: DB_URL,
-  ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
-}) : null;
+const DB_HOST = process.env.SUPABASE_DB_HOST || process.env.PGHOST;
+const DB_USER = process.env.SUPABASE_DB_USER || process.env.PGUSER;
+const DB_PASSWORD = process.env.SUPABASE_DB_PASSWORD || process.env.PGPASSWORD;
+const DB_NAME = process.env.SUPABASE_DB_NAME || process.env.PGDATABASE || 'postgres';
+const DB_PORT = Number(process.env.SUPABASE_DB_PORT || process.env.PGPORT || 5432);
+const hasSeparateDbConfig = Boolean(DB_HOST && DB_USER && DB_PASSWORD);
+const isSupabaseDb = Boolean(process.env.SUPABASE_DB_URL || DB_HOST) || String(DB_URL || '').includes('supabase');
+const pool = DB_URL
+  ? new Pool({
+      connectionString: DB_URL,
+      ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
+    })
+  : hasSeparateDbConfig
+    ? new Pool({
+        host: DB_HOST,
+        port: DB_PORT,
+        user: DB_USER,
+        password: DB_PASSWORD,
+        database: DB_NAME,
+        ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
+      })
+    : null;
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));

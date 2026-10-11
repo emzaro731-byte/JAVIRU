@@ -339,4 +339,89 @@ app.post('/api/orders', requireSupabaseUser, async (req, res) => {
     res.status(err.status === 401 ? 401 : 503).json({ error:'Could not save your order. Check that the JAVIRU Supabase SQL setup has been run.' });
   }
 });
+
+// WooCommerce integration: JAVIRU remains an independent store when these settings are absent.
+// Configure WOOCOMMERCE_STORE_URL, WOOCOMMERCE_CONSUMER_KEY and
+// WOOCOMMERCE_CONSUMER_SECRET in Render Environment (never in browser code).
+function wooConfig() {
+  const store = String(process.env.WOOCOMMERCE_STORE_URL || '').trim().replace(/\\/$/, '');
+  const key = String(process.env.WOOCOMMERCE_CONSUMER_KEY || '').trim();
+  const secret = String(process.env.WOOCOMMERCE_CONSUMER_SECRET || '').trim();
+  if (!store || !key || !secret) return null;
+  try {
+    const parsed = new URL(store);
+    if (parsed.protocol !== 'https:' || !parsed.hostname) return null;
+    return { store, key, secret };
+  } catch { return null; }
+}
+async function wooRequest(resource) {
+  const cfg = wooConfig();
+  if (!cfg) {
+    const err = new Error('WooCommerce is not configured. Add the store URL, Consumer Key and Consumer Secret in Render Environment.');
+    err.status = 503;
+    throw err;
+  }
+  const endpoint = cfg.store + '/wp-json/wc/v3/' + resource.replace(/^\\//, '');
+  const response = await fetch(endpoint, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: 'Basic ' + Buffer.from(cfg.key + ':' + cfg.secret).toString('base64')
+    },
+    signal: AbortSignal.timeout(20000)
+  });
+  const raw = await response.text();
+  let data;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = null; }
+  if (!response.ok) {
+    const err = new Error(data?.message || ('WooCommerce returned HTTP ' + response.status + '. Check the store URL and REST API key permissions.'));
+    err.status = response.status === 401 || response.status === 403 ? 502 : response.status;
+    throw err;
+  }
+  return data;
+}
+app.get('/api/woocommerce/status', requireProductAdmin, (_req, res) => {
+  const cfg = wooConfig();
+  res.json({
+    configured: Boolean(cfg),
+    store_url: cfg ? cfg.store : '',
+    message: cfg ? 'WooCommerce settings are present. Use Test Connection to verify the API.' : 'JAVIRU works independently. Add WooCommerce credentials in Render to enable the connection.'
+  });
+});
+app.post('/api/woocommerce/test', requireProductAdmin, async (_req, res) => {
+  try {
+    const data = await wooRequest('system_status');
+    res.json({ ok:true, connected:true, store_name:data?.environment?.site_title || '', message:'WooCommerce connection successful.' });
+  } catch (err) {
+    res.status(err.status || 502).json({ ok:false, connected:false, error:err.message || 'WooCommerce connection failed.' });
+  }
+});
+app.get('/api/woocommerce/products', requireProductAdmin, async (req, res) => {
+  const page = Math.min(100, Math.max(1, Number.parseInt(req.query.page || '1', 10) || 1));
+  try {
+    const products = await wooRequest('products?per_page=50&page=' + page);
+    res.json({ products: Array.isArray(products) ? products.map(p => ({
+      id:p.id, name:p.name, sku:p.sku || '', price:Number(p.price || 0),
+      regular_price:Number(p.regular_price || 0), stock_status:p.stock_status || 'unknown',
+      stock_quantity:p.stock_quantity ?? null, image:p.images?.[0]?.src || '',
+      permalink:p.permalink || '', status:p.status || ''
+    })) : [], page });
+  } catch (err) {
+    res.status(err.status || 502).json({ error:err.message || 'Could not retrieve WooCommerce products.' });
+  }
+});
+app.get('/api/woocommerce/orders', requireProductAdmin, async (req, res) => {
+  const page = Math.min(100, Math.max(1, Number.parseInt(req.query.page || '1', 10) || 1));
+  try {
+    const orders = await wooRequest('orders?per_page=50&page=' + page);
+    res.json({ orders: Array.isArray(orders) ? orders.map(o => ({
+      id:o.id, number:o.number, status:o.status, currency:o.currency,
+      total:o.total, date_created:o.date_created,
+      billing:{ first_name:o.billing?.first_name || '', last_name:o.billing?.last_name || '', email:o.billing?.email || '' },
+      line_items:(o.line_items || []).map(i => ({ product_id:i.product_id, name:i.name, quantity:i.quantity, total:i.total }))
+    })) : [], page });
+  } catch (err) {
+    res.status(err.status || 502).json({ error:err.message || 'Could not retrieve WooCommerce orders.' });
+  }
+});
+
 app.listen(PORT, () => console.log('JAVIRU listening on port ' + PORT));

@@ -90,7 +90,55 @@ app.get('/health', async (_req, res) => {
     res.status(503).json({ ok:false, service:'javiru-marketplace', database:'unreachable', hint:'Check SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in Render.' });
   }
 });
-app.get('/api/products', (_req, res) => res.json(publicProducts));
+async function requireProductAdmin(req, res, next) {
+  const token = bearer(req);
+  if (!token) return res.status(401).json({ error:'Please sign in with the JAVIRU administrator account.' });
+  try {
+    const user = await supabaseFetch('/auth/v1/user', token);
+    if (!user?.id) return res.status(401).json({ error:'Please sign in again.' });
+    if (user.app_metadata?.javiru_product_admin !== true) return res.status(403).json({ error:'Product importing is restricted to the JAVIRU administrator.' });
+    req.supabaseToken = token;
+    req.authUser = user;
+    next();
+  } catch (err) {
+    return res.status(err.status === 401 ? 401 : 503).json({ error:'Could not verify your Supabase session.' });
+  }
+}
+app.get('/api/products', async (_req, res) => {
+  try {
+    const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name&active=eq.true&order=created_at.desc', '');
+    if (Array.isArray(rows) && rows.length) {
+      return res.json(rows.map(p => ({ id:Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
+    }
+  } catch (err) {
+    console.warn('Imported product catalogue unavailable; using seed products:', err.status || '', err.message);
+  }
+  res.json(publicProducts);
+});
+app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
+  const body = req.body || {};
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const category = typeof body.category === 'string' ? body.category.trim() : '';
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+  const sourceUrl = typeof body.source_url === 'string' ? body.source_url.trim() : '';
+  const price = Number(body.price), oldPrice = Number(body.old_price || body.price), stock = Number(body.stock || 0);
+  if (!name || name.length > 180 || !category || category.length > 80 || !description || description.length > 3000 || !Number.isFinite(price) || price <= 0 || !Number.isFinite(oldPrice) || oldPrice < price || !Number.isInteger(stock) || stock < 0 || stock > 100000) {
+    return res.status(400).json({ error:'Enter a product name, category, description, valid price, old price and stock.' });
+  }
+  if (sourceUrl) {
+    try { const u = new URL(sourceUrl); if (!['http:', 'https:'].includes(u.protocol) || !/(^|\\.)jumia\\./i.test(u.hostname)) throw new Error(); }
+    catch { return res.status(400).json({ error:'Enter a valid Jumia product URL, or leave the source URL blank.' }); }
+  }
+  const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
+  try {
+    const created = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name', req.supabaseToken, { method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row) });
+    const p = Array.isArray(created) ? created[0] : created;
+    res.status(201).json({ product:{ id:Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 4.5), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' } });
+  } catch (err) {
+    console.error('Product import failed:', err.status || '', err.message);
+    res.status(err.status === 401 ? 401 : err.status === 403 ? 403 : 503).json({ error:'Could not save product. Apply supabase/products.sql and confirm your administrator role is enabled.' });
+  }
+});
 app.get('/api/auth/me', async (req, res) => {
   const token = bearer(req);
   if (!token) return res.json({ user:null });

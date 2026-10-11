@@ -44,8 +44,9 @@ Before importing products, run `supabase/products.sql` again in the Supabase SQL
 - Render health endpoint at `/health`
 
 ## Important limitations
-- The starter product catalogue is currently hard-coded in the app; seller product publishing is not yet connected to a shared database.
+- Products imported from Jumia are stored in the shared Supabase `javiru_products` table. Seller self-service publishing is not enabled.
 - Checkout records orders as **Pay on delivery**. Online payment collection is not integrated.
 - Real delivery tracking, seller registration/approval, seller payouts, refunds, customer notifications and a secure admin dashboard still need to be built.
-- The seeded products are illustrative; verify product descriptions, prices, stock, warranty and delivery terms before selling.
+- Product imports are upserted by supplier product ID to avoid duplicates. To refresh a product's price/stock, search and import it again; scheduled automatic refresh is not enabled yet.
+- Jumia import only adds/updates JAVIRU's catalogue. It does not automatically buy from Jumia, arrange delivery, or guarantee supplier stock. Verify product descriptions, prices, stock, warranty and delivery terms before selling.
 - The publishable key is intended for client-side use; security comes from Supabase Auth and row-level security. Never put a Supabase secret/service-role key in the browser or commit it to GitHub.

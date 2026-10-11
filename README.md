@@ -4,7 +4,7 @@ A mobile-responsive marketplace storefront. This independent concept is not affi
 
 ## Supabase setup (no PostgreSQL connection string)
 
-JAVIRU now uses **Supabase Auth + the Supabase REST API**. It does not require a database password, PostgreSQL URI, or service-role key.
+JAVIRU uses **Supabase Auth + the Supabase REST API** for storefront, login and orders. It does not require a database password or PostgreSQL URI. The optional background Jumia synchronizer does require a server-only Supabase service-role key so it can refresh products securely when the administrator is offline.
 
 ### 1. Configure Supabase Auth
 1. Open the [JAVIRU Supabase project](https://supabase.com/dashboard/project/vihbsfrwnslnmheowkhy).
@@ -47,6 +47,6 @@ Before importing products, run `supabase/products.sql` again in the Supabase SQL
 - Products imported from Jumia are stored in the shared Supabase `javiru_products` table. Seller self-service publishing is not enabled.
 - Checkout records orders as **Pay on delivery**. Online payment collection is not integrated.
 - Real delivery tracking, seller registration/approval, seller payouts, refunds, customer notifications and a secure admin dashboard still need to be built.
-- Product imports are upserted by supplier product ID to avoid duplicates. To refresh a product's price/stock, search and import it again; scheduled automatic refresh is not enabled yet.
+- Product imports are upserted by supplier product ID to avoid duplicates. Automatic refresh requires a working Jumia search endpoint and the server-only `SUPABASE_SERVICE_ROLE_KEY` environment variable.
 - Jumia import only adds/updates JAVIRU's catalogue. It does not automatically buy from Jumia, arrange delivery, or guarantee supplier stock. Verify product descriptions, prices, stock, warranty and delivery terms before selling.
 - The publishable key is intended for client-side use; security comes from Supabase Auth and row-level security. Never put a Supabase secret/service-role key in the browser or commit it to GitHub.

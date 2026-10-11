@@ -115,4 +115,4 @@ GRANT UPDATE (status) ON public.javiru_orders TO authenticated;
 alter table public.javiru_products add column if not exists image_url text;
 alter table public.javiru_products add column if not exists supplier_product_id text;
 create unique index if not exists javiru_products_supplier_product_id_uidx
-  on public.javiru_products (supplier_product_id) where supplier_product_id is not null;
+  on public.javiru_products (supplier_product_id);

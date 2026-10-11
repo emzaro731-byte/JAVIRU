@@ -218,7 +218,20 @@ function openAccount(){
 }
 function openProductImporter(){
  if(!apiUser?.isProductAdmin){toast('Product importing is administrator-only');return}
- openModal('<div class="drawhead"><h2>🛍️ Import from Jumia</h2><button class="close" onclick="closeModal()">×</button></div><p class="muted">Search the live Jumia API configured for JAVIRU. Choose products to import into Supabase. Importing does not place supplier orders or guarantee Jumia stock.</p><form onsubmit="searchJumia(event)" class="row"><label class="field" style="flex:1">Search Jumia<input id="jumiaQuery" required maxlength="120" placeholder="e.g. Android phone"></label><button class="btn dark" id="jumiaSearchBtn" style="align-self:end">SEARCH</button></form><div id="jumiaResults" style="margin-top:14px"></div>');
+ openModal('<div class="drawhead"><h2>🛍️ Import from Jumia</h2><button class="close" onclick="closeModal()">×</button></div><p class="muted">Search the live Jumia API configured for JAVIRU. Choose products to import into Supabase. Importing does not place supplier orders or guarantee Jumia stock.</p><div class="panel" style="margin:12px 0"><b>Automatic product updates</b><p id="jumiaSyncStatus" class="muted" style="margin:6px 0">Checking synchronization status…</p><button class="btn dark" id="jumiaSyncBtn" onclick="runJumiaSync()">SYNC NOW</button><small style="display:block;margin-top:8px">The server also refreshes imported Jumia products on its configured schedule.</small></div><form onsubmit="searchJumia(event)" class="row"><label class="field" style="flex:1">Search Jumia<input id="jumiaQuery" required maxlength="120" placeholder="e.g. Android phone"></label><button class="btn dark" id="jumiaSearchBtn" style="align-self:end">SEARCH</button></form><div id="jumiaResults" style="margin-top:14px"></div>');
+ loadJumiaSyncStatus();
+}
+async function loadJumiaSyncStatus(){
+ const out=document.getElementById('jumiaSyncStatus');if(!out)return;
+ try{const status=await api('/api/admin/sync-status');out.textContent=(status.configured?'Automatic sync configured · every '+status.interval_hours+' hours. ':'Setup needed. ')+(status.message||'Status unavailable')+(status.finished_at?' Last run: '+new Date(status.finished_at).toLocaleString():'');}
+ catch(err){out.textContent=err.message||'Could not read sync status.'}
+}
+async function runJumiaSync(){
+ const btn=document.getElementById('jumiaSyncBtn'),out=document.getElementById('jumiaSyncStatus');if(!btn||!out)return;
+ btn.disabled=true;btn.textContent='SYNCING…';out.textContent='Refreshing imported Jumia products. This can take a few minutes…';
+ try{const result=await api('/api/admin/sync-now',{method:'POST',body:'{}'});out.textContent=result.message||'Synchronization completed.';await syncProducts();renderCats();render();updateCart();}
+ catch(err){out.textContent=err.message||'Synchronization failed.'}
+ finally{btn.disabled=false;btn.textContent='SYNC NOW';}
 }
 async function searchJumia(event){
  event.preventDefault();const q=document.getElementById('jumiaQuery').value.trim(),out=document.getElementById('jumiaResults'),btn=document.getElementById('jumiaSearchBtn');

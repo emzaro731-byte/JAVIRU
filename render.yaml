@@ -7,19 +7,7 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      # Either set SUPABASE_DB_URL, or use the separate variables below.
-      # Separate variables are safer when the database password contains URL-reserved characters.
-      - key: SUPABASE_DB_URL
-        sync: false
-      - key: SUPABASE_DB_HOST
-        sync: false
-      - key: SUPABASE_DB_PORT
-        value: "5432"
-      - key: SUPABASE_DB_NAME
-        value: postgres
-      - key: SUPABASE_DB_USER
-        sync: false
-      - key: SUPABASE_DB_PASSWORD
-        sync: false
-      - key: SESSION_SECRET
-        generateValue: true
+      - key: SUPABASE_URL
+        value: https://vihbsfrwnslnmheowkhy.supabase.co
+      - key: SUPABASE_PUBLISHABLE_KEY
+        value: sb_publishable_HIMGxb-O6fj9O7OzT4ukuQ_jm5W8mWz

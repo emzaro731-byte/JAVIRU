@@ -153,7 +153,7 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
     try { const u = new URL(sourceUrl); const host = u.hostname.toLowerCase(); if (!['http:', 'https:'].includes(u.protocol) || !['jumia.com.ng','www.jumia.com.ng','jumia.com','www.jumia.com'].includes(host)) throw new Error(); }
     catch { return res.status(400).json({ error:'Enter a valid Jumia product URL, or leave the source URL blank.' }); }
   }
-  const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', image_url:imageUrl || null, supplier_product_id:supplierProductId || null, emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
+  const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:(supplierProductId || sourceUrl) ? 'Jumia' : 'JAVIRU', image_url:imageUrl || null, supplier_product_id:supplierProductId || null, emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
   try {
     const created = await supabaseFetch('/rest/v1/javiru_products?on_conflict=supplier_product_id&select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name,image_url', req.supabaseToken, { method:'POST', headers:{ Prefer:'resolution=merge-duplicates,return=representation' }, body:JSON.stringify(row) });
     const p = Array.isArray(created) ? created[0] : created;

@@ -158,7 +158,7 @@ const supabaseClient = window.supabase.createClient(window.JAVIRU_SUPABASE_CONFI
 });
 function javiruUser(user){
  if(!user) return null;
- return {id:user.id,email:user.email||'',name:user.user_metadata?.full_name||user.user_metadata?.name||user.email||'JAVIRU customer',phone:user.phone||''};
+ return {id:user.id,email:user.email||'',name:user.user_metadata?.full_name||user.user_metadata?.name||user.email||'JAVIRU customer',phone:user.phone||'',isProductAdmin:user.app_metadata?.javiru_product_admin===true};
 }
 const seed=[
 [1,'Infinix-Style Android Smartphone 128GB','Phones & Tablets',149900,179900,'📱','#e4eaf4','HOT DEAL'],[2,'Wireless Noise-Cancelling Headphones','Electronics',28500,35000,'🎧','#e7eaf4','BESTSELLER'],[3,'50000mAh Fast-Charge Power Bank','Phones & Tablets',32000,39000,'🔋','#ece8e2','POPULAR'],[4,'Smart Watch with Fitness Tracker','Electronics',22000,28000,'⌚','#e8eee7','TRENDING'],[5,'Everyday Sneakers','Fashion',27000,33000,'👟','#e8e8ed','NEW'],[6,'Minimal Everyday Backpack','Fashion',18500,24000,'🎒','#eee5da','GOOD FIND'],[7,'Portable Bluetooth Speaker','Electronics',16000,20000,'🔊','#e1ecec','TOP PICK'],[8,'Insulated Travel Bottle','Home & Living',8500,11000,'🧴','#e9efdc','VALUE'],[9,'Soft Glow Table Lamp','Home & Living',14500,18000,'💡','#f1e6d8','COZY PICK'],[10,'Skincare Essentials Set','Beauty',12500,16000,'🧴','#f2e3e8','SELF CARE'],[11,'Compact Home Blender','Home & Living',24500,30000,'🥤','#e6ede6','KITCHEN'],[12,'Phone Tripod & Creator Kit','Electronics',13500,17000,'📷','#e5e9f1','CREATOR FAV'],[13,'Laptop for Work and Study','Computing',389000,429000,'💻','#e4eaf0','TOP PICK'],[14,'Wireless Keyboard and Mouse','Computing',18500,23000,'⌨️','#e8e9ee','DEAL'],[15,'Casual Crossbody Bag','Fashion',15500,19500,'👜','#eee5df','STYLE PICK'],[16,'Kids Learning Toy Set','Baby & Kids',12000,15000,'🧸','#f2e5d9','FAMILY'],[17,'Pantry Essentials Bundle','Groceries',9500,11500,'🛍️','#e5eddb','DAILY NEED'],[18,'Rechargeable Standing Fan','Home & Living',58000,68000,'🌀','#e3ebef','POPULAR'],[19,'Men’s Everyday Polo Shirt','Fashion',9500,12500,'👕','#e8e6df','EVERYDAY'],[20,'Home Security Camera','Electronics',27500,34000,'📹','#e2e8e8','SMART HOME']];
@@ -212,10 +212,27 @@ async function syncProducts(){
 let authMode='login';
 function openAccount(){
  if(apiUser){
-  openModal('<div class="drawhead"><h2>👤 Your JAVIRU account</h2><button class="close" onclick="closeModal()">×</button></div><div class="panel"><b>'+safe(apiUser.name)+'</b><br>'+safe(apiUser.email)+'<br>'+safe(apiUser.phone||'No phone added')+'</div><div class="btnrow"><button class="btn dark" onclick="closeModal();openOrders()">My orders</button><button class="btn" onclick="logoutAccount()">Sign out</button></div>');
+  openModal('<div class="drawhead"><h2>👤 Your JAVIRU account</h2><button class="close" onclick="closeModal()">×</button></div><div class="panel"><b>'+safe(apiUser.name)+'</b><br>'+safe(apiUser.email)+'<br>'+safe(apiUser.phone||'No phone added')+'</div><div class="btnrow"><button class="btn dark" onclick="closeModal();openOrders()">My orders</button>'+(apiUser.isProductAdmin?'<button class="btn dark" onclick="openProductImporter()">Import product</button>':'')+'<button class="btn" onclick="logoutAccount()">Sign out</button></div>');
   return;
  }
  authMode='login';renderAuthForm();
+}
+function openProductImporter(){
+ if(!apiUser?.isProductAdmin){toast('Product importing is administrator-only');return}
+ openModal('<div class="drawhead"><h2>Import product to JAVIRU</h2><button class="close" onclick="closeModal()">×</button></div><p class="muted">Enter product details from a supplier listing. This saves the product to Supabase; it does not scrape Jumia or place supplier orders automatically.</p><form id="productImportForm" class="formgrid" onsubmit="submitImportedProduct(event)"><label>Product name<input name="name" required maxlength="180" placeholder="Product name"></label><label>Category<select name="category" required><option>Phones &amp; Tablets</option><option>Electronics</option><option>Computing</option><option>Fashion</option><option>Home &amp; Living</option><option>Beauty</option><option>Baby &amp; Kids</option><option>Groceries</option></select></label><label>Price in naira<input name="price" type="number" min="1" step="0.01" required></label><label>Previous price in naira<input name="old_price" type="number" min="1" step="0.01" required></label><label>Stock quantity<input name="stock" type="number" min="0" step="1" value="1" required></label><label>Product emoji<input name="emoji" maxlength="12" value="📦"></label><label class="full">Jumia product URL (optional)<input name="source_url" type="url" placeholder="https://www.jumia.com.ng/..."></label><label class="full">Description<textarea name="description" required maxlength="3000" rows="3" placeholder="Product details and specifications"></textarea></label><button class="btn dark full" id="importProductSubmit" type="submit">SAVE PRODUCT</button></form>');
+}
+async function submitImportedProduct(event){
+ event.preventDefault();
+ const form=event.currentTarget, button=document.getElementById('importProductSubmit');
+ const values=Object.fromEntries(new FormData(form).entries());
+ values.price=Number(values.price);values.old_price=Number(values.old_price);values.stock=Number(values.stock);
+ if(values.old_price<values.price){toast('Previous price must be equal to or higher than the selling price');return}
+ button.disabled=true;button.textContent='SAVING…';
+ try{
+  await api('/api/admin/products',{method:'POST',body:JSON.stringify(values)});
+  await syncProducts();persistProducts();renderCats();render();closeModal();toast('Product saved to JAVIRU ✓');
+ }catch(err){toast(err.message||'Could not save product')}
+ finally{button.disabled=false;button.textContent='SAVE PRODUCT'}
 }
 function renderAuthForm(){
  const register=authMode==='register';

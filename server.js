@@ -6,6 +6,8 @@ const PORT = Number(process.env.PORT || 3000);
 const SUPABASE_URL = String(process.env.SUPABASE_URL || 'https://vihbsfrwnslnmheowkhy.supabase.co').replace(/\/$/, '');
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_HIMGxb-O6fj9O7OzT4ukuQ_jm5W8mWz';
 const JAVIRU_ADMIN_EMAIL = 'jamesbishopemmanuel@gmail.com';
+const JUMIA_SEARCH_API_URL = String(process.env.JUMIA_SEARCH_API_URL || '').trim();
+const JUMIA_API_KEY = String(process.env.JUMIA_API_KEY || '').trim();
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
@@ -85,14 +87,55 @@ async function requireProductAdmin(req, res, next) {
 }
 app.get('/api/products', async (_req, res) => {
   try {
-    const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name&active=eq.true&order=created_at.desc', '');
+    const rows = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name,image_url&active=eq.true&order=created_at.desc', '');
     if (Array.isArray(rows) && rows.length) {
-      return res.json(rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 0), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU' })));
+      return res.json(rows.map(p => ({ id:1000000 + Number(p.id), name:p.name, cat:p.category, price:Number(p.price), old:Number(p.old_price || p.price), emoji:p.emoji || '📦', bg:p.bg || '#f0f2ec', tag:p.tag || 'IMPORTED', rating:Number(p.rating || 0), stock:Number(p.stock || 0), description:p.description || '', source_url:p.source_url || '', source_name:p.source_name || 'JAVIRU', image:p.image_url || '' })));
     }
   } catch (err) {
     console.warn('Imported product catalogue unavailable:', err.status || '', err.message);
   }
   res.json([]);
+});
+
+// Search the user's configured Jumia product-search API. Keep supplier API credentials on the server.
+app.get('/api/admin/jumia-search', requireProductAdmin, async (req, res) => {
+  const q = String(req.query.q || '').trim().slice(0, 120);
+  if (!q) return res.status(400).json({ error: 'Enter a product to search for.' });
+  if (!JUMIA_SEARCH_API_URL) return res.status(503).json({ error: 'Set JUMIA_SEARCH_API_URL in Render to your existing live Jumia search API endpoint.' });
+  try {
+    const url = new URL(JUMIA_SEARCH_API_URL);
+    url.searchParams.set('q', q);
+    if (!url.searchParams.has('search')) url.searchParams.set('search', q);
+    const headers = { Accept: 'application/json' };
+    if (JUMIA_API_KEY) headers.Authorization = 'Bearer ' + JUMIA_API_KEY;
+    const upstream = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+    const raw = await upstream.text();
+    let payload;
+    try { payload = JSON.parse(raw); } catch { throw new Error('Jumia search API did not return JSON.'); }
+    if (!upstream.ok) return res.status(502).json({ error: 'Jumia search API returned HTTP ' + upstream.status + '.' });
+    const candidates = Array.isArray(payload) ? payload : (payload?.data?.results || payload?.results || payload?.data?.products || payload?.products || payload?.data?.items || payload?.items || []);
+    const results = candidates.slice(0, 40).map((p, i) => {
+      const price = Number(p.price ?? p.price_min ?? p.sale_price ?? p.final_price);
+      const old = Number(p.price_before_discount ?? p.original_price ?? p.old_price ?? price);
+      return {
+        product_id: String(p.product_id ?? p.sku ?? p.id ?? p.jumia_id ?? ''),
+        name: String(p.name ?? p.title ?? p.product_name ?? '').slice(0, 180),
+        brand: String(p.brand ?? ''),
+        category: String(p.category ?? p.category_name ?? 'Electronics'),
+        price, old_price: Number.isFinite(old) && old >= price ? old : price,
+        rating: Number(p.rating ?? p.search_index_rating ?? 0),
+        image_url: String(p.image_url ?? p.image ?? p.thumbnail ?? p.product_image ?? ''),
+        source_url: String(p.product_url ?? p.url ?? p.link ?? p.product_link ?? ''),
+        description: String(p.description ?? p.name ?? p.title ?? '').slice(0, 3000),
+        stock: p.buyable === false || p.in_stock === false ? 0 : 1,
+        emoji: '📦'
+      };
+    }).filter(p => p.name && Number.isFinite(p.price) && p.price > 0 && /^https?:$/.test((()=>{try{return new URL(p.image_url).protocol}catch{return ''}})()));
+    res.json({ results, count: results.length });
+  } catch (err) {
+    console.error('Jumia search failed:', err.message);
+    res.status(502).json({ error: err.name === 'TimeoutError' ? 'Jumia search timed out. Try again.' : (err.message || 'Could not search Jumia.') });
+  }
 });
 app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
   const body = req.body || {};
@@ -100,6 +143,8 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
   const category = typeof body.category === 'string' ? body.category.trim() : '';
   const description = typeof body.description === 'string' ? body.description.trim() : '';
   const sourceUrl = typeof body.source_url === 'string' ? body.source_url.trim() : '';
+  const imageUrl = typeof body.image_url === 'string' ? body.image_url.trim() : '';
+  const supplierProductId = typeof body.product_id === 'string' ? body.product_id.trim().slice(0,180) : '';
   const price = Number(body.price), oldPrice = Number(body.old_price || body.price), stock = Number(body.stock || 0);
   if (!name || name.length > 180 || !category || category.length > 80 || !description || description.length > 3000 || !Number.isFinite(price) || price <= 0 || !Number.isFinite(oldPrice) || oldPrice < price || !Number.isInteger(stock) || stock < 0 || stock > 100000) {
     return res.status(400).json({ error:'Enter a product name, category, description, valid price, old price and stock.' });
@@ -108,7 +153,7 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
     try { const u = new URL(sourceUrl); const host = u.hostname.toLowerCase(); if (!['http:', 'https:'].includes(u.protocol) || !['jumia.com.ng','www.jumia.com.ng','jumia.com','www.jumia.com'].includes(host)) throw new Error(); }
     catch { return res.status(400).json({ error:'Enter a valid Jumia product URL, or leave the source URL blank.' }); }
   }
-  const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
+  const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', image_url:imageUrl || null, supplier_product_id:supplierProductId || null, emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };
   try {
     const created = await supabaseFetch('/rest/v1/javiru_products?select=id,name,category,price,old_price,emoji,bg,tag,rating,stock,description,source_url,source_name', req.supabaseToken, { method:'POST', headers:{ Prefer:'return=representation' }, body:JSON.stringify(row) });
     const p = Array.isArray(created) ? created[0] : created;

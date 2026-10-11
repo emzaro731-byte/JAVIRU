@@ -163,6 +163,118 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
     res.status(err.status === 401 ? 401 : err.status === 403 ? 403 : 503).json({ error:'Could not save product. Apply supabase/products.sql and confirm your administrator role is enabled.' });
   }
 });
+
+// Automatic Jumia catalogue refresh. Keep the Supabase service-role key on the server only.
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const SYNC_INTERVAL_HOURS = Math.min(24, Math.max(1, Number(process.env.JUMIA_SYNC_INTERVAL_HOURS || 6)));
+let syncInProgress = false;
+let lastSync = { status: 'not-run', finished_at: null, updated: 0, skipped: 0, errors: 0, message: 'Waiting for the first scheduled refresh.' };
+
+async function syncSupabaseAdmin(resource, options = {}) {
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('Set SUPABASE_SERVICE_ROLE_KEY in Render to enable automatic synchronization.');
+  const response = await fetch(SUPABASE_URL + resource, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: 'Bearer ' + SUPABASE_SERVICE_ROLE_KEY,
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    signal: AbortSignal.timeout(25000)
+  });
+  const raw = await response.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = { message: raw }; }
+  if (!response.ok) throw new Error(data?.message || data?.hint || 'Supabase sync request failed with HTTP ' + response.status);
+  return data;
+}
+function getJumiaCandidates(payload) {
+  return Array.isArray(payload) ? payload : (payload?.data?.results || payload?.results || payload?.data?.products || payload?.products || payload?.data?.items || payload?.items || []);
+}
+function supplierId(p) {
+  return String(p?.product_id ?? p?.sku ?? p?.id ?? p?.jumia_id ?? '').trim();
+}
+async function refreshJumiaCatalogue(trigger = 'scheduled') {
+  if (syncInProgress) return { ...lastSync, status: 'already-running', message: 'A synchronization is already running.' };
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    lastSync = { ...lastSync, status: 'needs-configuration', finished_at: new Date().toISOString(), message: 'Add SUPABASE_SERVICE_ROLE_KEY to Render. Keep it secret and server-side.' };
+    return lastSync;
+  }
+  if (!JUMIA_SEARCH_API_URL) {
+    lastSync = { ...lastSync, status: 'needs-configuration', finished_at: new Date().toISOString(), message: 'Add JUMIA_SEARCH_API_URL to Render.' };
+    return lastSync;
+  }
+  syncInProgress = true;
+  const result = { status: 'running', started_at: new Date().toISOString(), finished_at: null, updated: 0, skipped: 0, errors: 0, message: 'Jumia catalogue refresh started (' + trigger + ').' };
+  lastSync = result;
+  try {
+    const rows = await syncSupabaseAdmin('/rest/v1/javiru_products?select=id,name,price,old_price,stock,source_url,image_url,supplier_product_id,active&source_name=eq.Jumia&active=eq.true&supplier_product_id=not.is.null&order=id.asc&limit=200');
+    for (const row of (Array.isArray(rows) ? rows : [])) {
+      try {
+        const url = new URL(JUMIA_SEARCH_API_URL);
+        url.searchParams.set('q', row.supplier_product_id);
+        url.searchParams.set('search', row.supplier_product_id);
+        const headers = { Accept: 'application/json' };
+        if (JUMIA_API_KEY) headers.Authorization = 'Bearer ' + JUMIA_API_KEY;
+        const upstream = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+        if (!upstream.ok) throw new Error('Jumia API HTTP ' + upstream.status);
+        const payload = await upstream.json();
+        const match = getJumiaCandidates(payload).find(p => supplierId(p) === String(row.supplier_product_id));
+        if (!match) { result.skipped++; continue; }
+        const price = Number(match.price ?? match.price_min ?? match.sale_price ?? match.final_price);
+        if (!Number.isFinite(price) || price <= 0) { result.skipped++; continue; }
+        const candidateOld = Number(match.price_before_discount ?? match.original_price ?? match.old_price ?? price);
+        const oldPrice = Number.isFinite(candidateOld) && candidateOld >= price ? candidateOld : price;
+        const buyable = match.buyable !== false && match.in_stock !== false && match.stock !== 0;
+        const patch = {
+          price,
+          old_price: oldPrice,
+          stock: buyable ? Math.max(1, Number.isInteger(Number(match.stock)) && Number(match.stock) > 0 ? Number(match.stock) : 1) : 0,
+          rating: Math.min(5, Math.max(0, Number(match.rating ?? match.search_index_rating ?? 0))),
+          active: true
+        };
+        const image = String(match.image_url ?? match.image ?? match.thumbnail ?? match.product_image ?? '');
+        if (/^https?:\/\//i.test(image)) patch.image_url = image;
+        const source = String(match.product_url ?? match.url ?? match.link ?? match.product_link ?? '');
+        if (/^https?:\/\//i.test(source) && (() => { try { return ['jumia.com.ng','www.jumia.com.ng','jumia.com','www.jumia.com'].includes(new URL(source).hostname.toLowerCase()); } catch { return false; } })()) patch.source_url = source;
+        await syncSupabaseAdmin('/rest/v1/javiru_products?id=eq.' + encodeURIComponent(row.id), {
+          method: 'PATCH',
+          headers: { Prefer: 'return=minimal' },
+          body: JSON.stringify(patch)
+        });
+        result.updated++;
+      } catch (err) {
+        result.errors++;
+        console.warn('Jumia sync item failed:', row.id, err.message);
+      }
+      // Be polite to the configured supplier API and avoid bursts.
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    result.status = result.errors ? (result.updated ? 'completed-with-errors' : 'failed') : 'completed';
+    result.message = 'Refresh finished: ' + result.updated + ' updated, ' + result.skipped + ' unchanged/not matched, ' + result.errors + ' errors.';
+  } catch (err) {
+    result.status = 'failed';
+    result.errors++;
+    result.message = err.message || 'Catalogue refresh failed.';
+    console.error('Jumia catalogue refresh failed:', result.message);
+  } finally {
+    result.finished_at = new Date().toISOString();
+    lastSync = { ...result };
+    syncInProgress = false;
+  }
+  return lastSync;
+}
+app.get('/api/admin/sync-status', requireProductAdmin, (_req, res) => {
+  res.json({ ...lastSync, interval_hours: SYNC_INTERVAL_HOURS, configured: Boolean(SUPABASE_SERVICE_ROLE_KEY && JUMIA_SEARCH_API_URL) });
+});
+app.post('/api/admin/sync-now', requireProductAdmin, async (_req, res) => {
+  const result = await refreshJumiaCatalogue('administrator');
+  res.status(result.status === 'failed' || result.status === 'needs-configuration' ? 503 : 200).json(result);
+});
+const syncTimer = setInterval(() => { refreshJumiaCatalogue('scheduled').catch(err => console.error('Scheduled Jumia sync error:', err.message)); }, SYNC_INTERVAL_HOURS * 60 * 60 * 1000);
+if (typeof syncTimer.unref === 'function') syncTimer.unref();
+setTimeout(() => { refreshJumiaCatalogue('startup').catch(err => console.error('Startup Jumia sync error:', err.message)); }, 120000).unref?.();
+
 app.get('/api/auth/me', async (req, res) => {
   const token = bearer(req);
   if (!token) return res.json({ user:null });

@@ -78,7 +78,7 @@ function readSession(req) {
   } catch { return null; }
 }
 async function requireUser(req, res, next) {
-  if (!pool) return res.status(503).json({ error: 'Database is not configured. Add DATABASE_URL in Render.' });
+  if (!pool) return res.status(503).json({ error: 'Database is not configured. Add SUPABASE_DB_URL in Render.' });
   const session = readSession(req);
   if (!session) return res.status(401).json({ error: 'Please sign in to continue.' });
   try {
@@ -124,6 +124,8 @@ async function initDb() {
       quantity INTEGER NOT NULL CHECK(quantity > 0)
     );
   `);
+  // Keep existing databases compatible with accounts created before schema updates.
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''");
   for (const p of seed) {
     await pool.query(`INSERT INTO products(id,name,category,price,old_price,emoji,bg,tag,rating,stock,description)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,4.5,25,$9) ON CONFLICT(id) DO NOTHING`,
@@ -132,10 +134,14 @@ async function initDb() {
   console.log('JAVIRU database ready');
 }
 app.get('/health', async (_req, res) => {
+  if (!pool) return res.status(503).json({ ok:false, service:'javiru-marketplace', database:'not_configured', hint:'Add SUPABASE_DB_URL in Render Environment using the Supabase PostgreSQL connection URI.' });
   try {
-    if (pool) await pool.query('SELECT 1');
-    res.json({ ok:true, service:'javiru-marketplace', database:pool ? 'connected' : 'not_configured' });
-  } catch (err) { res.status(503).json({ ok:false, service:'javiru-marketplace', database:'error' }); }
+    await pool.query('SELECT 1');
+    res.json({ ok:true, service:'javiru-marketplace', database:'connected' });
+  } catch (err) {
+    console.error('Database health check failed:', err.code || err.message);
+    res.status(503).json({ ok:false, service:'javiru-marketplace', database:'error', code:err.code || 'DB_ERROR' });
+  }
 });
 app.get('/api/products', async (_req, res) => {
   if (!pool) return res.json(seed.map(p=>({id:p[0],name:p[1],cat:p[2],price:p[3],old:p[4],emoji:p[5],bg:p[6],tag:p[7],rating:4.5,stock:25,description:''})));
@@ -154,7 +160,7 @@ app.get('/api/auth/me', async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({error:'Could not load account.'}); }
 });
 app.post('/api/auth/register', async (req, res) => {
-  if (!pool) return res.status(503).json({error:'Database is not configured. Add DATABASE_URL in Render.'});
+  if (!pool) return res.status(503).json({error:'Database is not configured. Add SUPABASE_DB_URL in Render.'});
   const name=String(req.body.name||'').trim(), email=String(req.body.email||'').trim().toLowerCase(), phone=String(req.body.phone||'').trim(), password=String(req.body.password||'');
   if (name.length<2 || name.length>100) return res.status(400).json({error:'Enter your full name.'});
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length>254) return res.status(400).json({error:'Enter a valid email address.'});
@@ -170,7 +176,7 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 app.post('/api/auth/login', async (req, res) => {
-  if (!pool) return res.status(503).json({error:'Database is not configured. Add DATABASE_URL in Render.'});
+  if (!pool) return res.status(503).json({error:'Database is not configured. Add SUPABASE_DB_URL in Render.'});
   const email=String(req.body.email||'').trim().toLowerCase(), password=String(req.body.password||'');
   try {
     const { rows } = await pool.query('SELECT id,name,email,phone,password_hash FROM users WHERE email=$1', [email]);

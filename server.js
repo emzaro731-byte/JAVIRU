@@ -126,7 +126,7 @@ app.post('/api/admin/products', requireProductAdmin, async (req, res) => {
     return res.status(400).json({ error:'Enter a product name, category, description, valid price, old price and stock.' });
   }
   if (sourceUrl) {
-    try { const u = new URL(sourceUrl); if (!['http:', 'https:'].includes(u.protocol) || !/(^|\\.)jumia\\./i.test(u.hostname)) throw new Error(); }
+    try { const u = new URL(sourceUrl); const host = u.hostname.toLowerCase(); if (!['http:', 'https:'].includes(u.protocol) || !['jumia.com.ng','www.jumia.com.ng','jumia.com','www.jumia.com'].includes(host)) throw new Error(); }
     catch { return res.status(400).json({ error:'Enter a valid Jumia product URL, or leave the source URL blank.' }); }
   }
   const row = { name, category, description, price, old_price:oldPrice, stock, source_url:sourceUrl || null, source_name:sourceUrl ? 'Jumia' : 'JAVIRU', emoji:typeof body.emoji === 'string' ? body.emoji.slice(0,12) : '📦', bg:'#f0f2ec', tag:'IMPORTED', active:true, created_by:req.authUser.id };

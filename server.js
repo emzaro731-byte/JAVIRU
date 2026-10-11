@@ -18,19 +18,19 @@ const DB_NAME = process.env.SUPABASE_DB_NAME || process.env.PGDATABASE || 'postg
 const DB_PORT = Number(process.env.SUPABASE_DB_PORT || process.env.PGPORT || 5432);
 const hasSeparateDbConfig = Boolean(DB_HOST && DB_USER && DB_PASSWORD);
 const isSupabaseDb = Boolean(process.env.SUPABASE_DB_URL || DB_HOST) || String(DB_URL || '').includes('supabase');
-const pool = DB_URL
+const pool = hasSeparateDbConfig
   ? new Pool({
-      connectionString: DB_URL,
-      ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
+      host: DB_HOST,
+      port: DB_PORT,
+      user: DB_USER,
+      password: DB_PASSWORD,
+      database: DB_NAME,
+      ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
     })
-  : hasSeparateDbConfig
+  : DB_URL
     ? new Pool({
-        host: DB_HOST,
-        port: DB_PORT,
-        user: DB_USER,
-        password: DB_PASSWORD,
-        database: DB_NAME,
-        ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false }
+        connectionString: DB_URL,
+        ...(process.env.PGSSL === 'true' || isSupabaseDb ? { ssl: { rejectUnauthorized: false } } : {})
       })
     : null;
 
